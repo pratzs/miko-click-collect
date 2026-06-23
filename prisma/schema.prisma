@@ -1,0 +1,177 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id            String    @id
+  shop          String
+  state         String
+  isOnline      Boolean   @default(false)
+  scope         String?
+  expires       DateTime?
+  accessToken   String
+  userId        BigInt?
+  firstName     String?
+  lastName      String?
+  email         String?
+  accountOwner  Boolean   @default(false)
+  locale        String?
+  collaborator          Boolean?  @default(false)
+  emailVerified         Boolean?  @default(false)
+  refreshToken          String?
+  refreshTokenExpires   DateTime?
+}
+
+// One row per installed shop
+model ShopConfig {
+  id          String   @id @default(cuid())
+  shop        String   @unique
+  accessToken String   @default("")
+  planName    String   @default("free")
+  shopName    String   @default("")
+  currency    String   @default("NZD")
+  timezone    String   @default("Pacific/Auckland")
+
+  // Email identity
+  senderName     String @default("")
+  replyToEmail   String @default("")
+
+  // BYO SMTP (Starter+)
+  smtpHost      String  @default("")
+  smtpPort      Int     @default(587)
+  smtpUser      String  @default("")
+  smtpPass      String  @default("")
+  smtpFromEmail String  @default("")
+  smtpFromName  String  @default("")
+  smtpSecure    Boolean @default(false)
+
+  // Brand
+  brandLogoUrl      String?
+  brandPrimaryColor String? @default("#1a1a1a")
+  brandName         String?
+
+  // Onboarding
+  onboardingCompleted Boolean @default(false)
+
+  // Notification settings
+  notifyReadySubject     String @default("Your order is ready for collection! 🛍️")
+  notifyPickedUpSubject  String @default("Thanks for collecting your order!")
+  notifyMerchantEmail    String @default("")  // CC merchant on ready notification
+
+  // Subscription
+  trialStartedAt          DateTime?
+  subscriptionCancelledAt DateTime?
+
+  installedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  locations PickupLocation[]
+  orders    ClickCollectOrder[]
+}
+
+// Physical locations where customers can collect their orders
+model PickupLocation {
+  id        String  @id @default(cuid())
+  shop      String
+  name      String  // "Auckland CBD Store"
+  address   String  @default("")
+  city      String  @default("")
+  postcode  String  @default("")
+  phone     String  @default("")
+  email     String  @default("")
+
+  // Store hours as JSON: { "mon": { "open": "09:00", "close": "17:00", "closed": false }, ... }
+  hours Json @default("{}")
+
+  // How many minutes after order is placed before it can be ready (e.g. 60 = 1 hour)
+  prepTimeMinutes Int @default(60)
+
+  // Instructions shown to customer on confirmation page / email
+  collectionInstructions String @default("")
+
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  shopConfig ShopConfig          @relation(fields: [shop], references: [shop])
+  orders     ClickCollectOrder[]
+
+  @@index([shop])
+  @@index([shop, isActive])
+}
+
+// Click & Collect order — created when a paid order has pickup attributes
+model ClickCollectOrder {
+  id               String @id @default(cuid())
+  shop             String
+  shopifyOrderId   String // numeric Shopify order ID
+  shopifyOrderName String @default("") // "#1042"
+  shopifyOrderGid  String @default("") // gid://shopify/Order/xxx
+
+  pickupLocationId String
+
+  // Customer snapshot
+  customerName  String @default("")
+  customerEmail String @default("")
+  customerPhone String @default("")
+
+  // Order snapshot (line items as JSON)
+  lineItemsJson Json   @default("[]")
+  totalPrice    String @default("")
+  currency      String @default("")
+
+  // Status lifecycle:
+  // pending   = order paid, waiting for merchant to prepare
+  // ready     = merchant marked as ready, notification sent to customer
+  // picked_up = customer collected, merchant confirmed
+  // cancelled = order cancelled
+  status String @default("pending")
+
+  // Merchant can set an expected ready time
+  expectedReadyAt DateTime?
+
+  // Timestamps
+  readyAt    DateTime?
+  pickedUpAt DateTime?
+
+  // Notification tracking
+  readyNotificationSentAt    DateTime?
+  pickedUpNotificationSentAt DateTime?
+
+  merchantNotes String @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  shopConfig     ShopConfig     @relation(fields: [shop], references: [shop])
+  pickupLocation PickupLocation @relation(fields: [pickupLocationId], references: [id])
+
+  @@unique([shop, shopifyOrderId])
+  @@index([shop, status])
+  @@index([shop, pickupLocationId])
+  @@index([shop, createdAt])
+}
+
+// Email audit log
+model EmailLog {
+  id             String   @id @default(cuid())
+  shop           String
+  orderId        String
+  type           String   // ready_to_collect | picked_up | custom
+  recipientEmail String
+  subject        String
+  status         String   @default("sent") // sent | failed
+  errorMessage   String   @default("")
+  sentAt         DateTime @default(now())
+
+  @@index([shop, orderId])
+  @@index([shop])
+}

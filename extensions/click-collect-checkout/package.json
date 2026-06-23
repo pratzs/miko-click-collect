@@ -1,0 +1,17 @@
+{
+  "name": "click-collect-checkout",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "shopify app build"
+  },
+  "dependencies": {
+    "@shopify/ui-extensions": "^2024.7.0",
+    "@shopify/ui-extensions-react": "^2024.7.0",
+    "react": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.31",
+    "typescript": "^5.2.2"
+  }
+}
