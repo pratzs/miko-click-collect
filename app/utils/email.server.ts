@@ -4,6 +4,12 @@ import { db } from "../db.server";
 
 type OrderWithLocation = ClickCollectOrder & { pickupLocation: PickupLocation };
 
+interface LineItem {
+  title: string;
+  quantity: number;
+  price: string;
+}
+
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 
 async function sendViaResend(
@@ -136,6 +142,58 @@ function progressBarHtml(currentStatus: string, config: ShopConfig): string {
     </div>`;
 }
 
+function itemsTableHtml(order: OrderWithLocation): string {
+  let items: LineItem[] = [];
+  try {
+    const raw = order.lineItemsJson;
+    items = Array.isArray(raw) ? raw : JSON.parse(String(raw));
+  } catch {}
+  if (!items.length) return "";
+
+  const currency = order.currency || "USD";
+  const fmt = (val: string | number) => {
+    const n = typeof val === "string" ? parseFloat(val) : val;
+    return isNaN(n) ? String(val) : n.toFixed(2);
+  };
+
+  const rows = items
+    .map(
+      (item) => `
+      <tr>
+        <td style="padding:10px 0;border-bottom:1px solid #f0f0f0;color:#1a1a1a;font-size:14px;">
+          ${item.title}
+        </td>
+        <td style="padding:10px 12px;border-bottom:1px solid #f0f0f0;color:#555;font-size:14px;text-align:center;white-space:nowrap;">
+          x${item.quantity}
+        </td>
+        <td style="padding:10px 0;border-bottom:1px solid #f0f0f0;color:#1a1a1a;font-size:14px;text-align:right;white-space:nowrap;">
+          ${currency} ${fmt(item.price)}
+        </td>
+      </tr>`,
+    )
+    .join("");
+
+  const totalRow = order.totalPrice
+    ? `<tr>
+        <td colspan="2" style="padding:12px 0 0;font-size:14px;font-weight:700;color:#1a1a1a;">Total</td>
+        <td style="padding:12px 0 0;font-size:14px;font-weight:700;color:#1a1a1a;text-align:right;">${currency} ${fmt(order.totalPrice)}</td>
+      </tr>`
+    : "";
+
+  return `
+    <div style="margin-bottom:24px;">
+      <table width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+          <td style="padding:0 0 8px;font-size:13px;color:#888;text-transform:uppercase;letter-spacing:.05em;">Item</td>
+          <td style="padding:0 0 8px;font-size:13px;color:#888;text-transform:uppercase;letter-spacing:.05em;text-align:center;">Qty</td>
+          <td style="padding:0 0 8px;font-size:13px;color:#888;text-transform:uppercase;letter-spacing:.05em;text-align:right;">Price</td>
+        </tr>
+        ${rows}
+        ${totalRow}
+      </table>
+    </div>`;
+}
+
 function statusUpdateHtml(
   config: ShopConfig,
   order: OrderWithLocation,
@@ -160,7 +218,7 @@ function statusUpdateHtml(
         </td></tr>
         <tr><td style="padding:40px;">
           <h1 style="margin:0 0 8px;font-size:26px;color:#1a1a1a;">${title}</h1>
-          <p style="color:#555;margin:0 0 16px;">Hi ${order.customerName || "there"}, ${message}</p>
+          <p style="color:#555;margin:0 0 24px;font-size:15px;line-height:1.5;">Hi ${order.customerName || "there"}, ${message}</p>
 
           ${progressBarHtml(status, config)}
 
@@ -168,6 +226,8 @@ function statusUpdateHtml(
             <p style="margin:0 0 4px;font-size:13px;color:#888;text-transform:uppercase;letter-spacing:.05em;">Order</p>
             <p style="margin:0;font-size:20px;font-weight:700;color:#1a1a1a;">${order.shopifyOrderName}</p>
           </div>
+
+          ${itemsTableHtml(order)}
 
           ${showLocation ? `
           <div style="border:2px solid ${color};border-radius:8px;padding:20px;margin-bottom:24px;">
