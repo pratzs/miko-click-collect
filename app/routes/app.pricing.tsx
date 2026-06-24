@@ -123,7 +123,7 @@ export default function PricingPage() {
                   </Text>
 
                   {isTest && plan.price > 0 && (
-                    <Text as="p" tone="subdued" variant="bodySm">Test mode — no real charge</Text>
+                    <Text as="p" tone="subdued" variant="bodySm">Test mode - no real charge</Text>
                   )}
 
                   <Divider />

@@ -2,7 +2,7 @@ api_version = "2025-07"
 uid = "b45554fe-ea59-553d-69cb-caa1fc337815617fc945"
 
 [[extensions]]
-name = "Click & Collect — Pickup Selector"
+name = "Click & Collect - Pickup Selector"
 handle = "click-collect-checkout"
 type = "ui_extension"
 
@@ -13,6 +13,26 @@ target = "purchase.checkout.delivery-address.render-before"
 [[extensions.targeting]]
 module = "./src/ThankYou.tsx"
 target = "purchase.thank-you.block.render"
+
+[extensions.settings]
+
+  [[extensions.settings.fields]]
+  key = "heading"
+  type = "single_line_text_field"
+  name = "Heading"
+  description = "The title shown above the pickup option"
+
+  [[extensions.settings.fields]]
+  key = "description"
+  type = "single_line_text_field"
+  name = "Description"
+  description = "The subtitle text below the heading"
+
+  [[extensions.settings.fields]]
+  key = "checkbox_label"
+  type = "single_line_text_field"
+  name = "Checkbox label"
+  description = "The text next to the pickup checkbox"
 
 [extensions.capabilities]
 network_access = true

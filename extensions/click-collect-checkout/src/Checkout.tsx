@@ -1,6 +1,7 @@
 import {
   reactExtension,
   useShop,
+  useSettings,
   useApplyAttributeChange,
   Banner,
   BlockStack,
@@ -41,7 +42,7 @@ function LocationCard({ location }: { location: Location }) {
   const hoursText = todayHours
     ? todayHours.closed
       ? "Closed today"
-      : `Today: ${todayHours.open} – ${todayHours.close}`
+      : `Today: ${todayHours.open} - ${todayHours.close}`
     : null;
 
   return (
@@ -57,7 +58,7 @@ function LocationCard({ location }: { location: Location }) {
           <Text size="small" appearance="subdued">{hoursText}</Text>
         )}
         <Text size="small" appearance="subdued">
-          · Ready in {formatPrepTime(location.prepTimeMinutes)}
+          Ready in {formatPrepTime(location.prepTimeMinutes)}
         </Text>
       </InlineStack>
       {location.phone && (
@@ -77,6 +78,11 @@ export default reactExtension("purchase.checkout.delivery-address.render-before"
 function ClickCollectExtension() {
   const { myshopifyDomain } = useShop();
   const applyAttributeChange = useApplyAttributeChange();
+  const settings = useSettings();
+
+  const heading = (settings.heading as string) || "Click & Collect";
+  const description = (settings.description as string) || "Skip the wait and collect your order from one of our pickup locations.";
+  const checkboxLabel = (settings.checkbox_label as string) || "I will collect my order in-store (free pickup)";
 
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
@@ -141,10 +147,8 @@ function ClickCollectExtension() {
       <Divider />
 
       <BlockStack spacing="tight">
-        <Text size="medium" emphasis="bold">Click &amp; Collect</Text>
-        <Text size="small" appearance="subdued">
-          Skip the wait — collect your order from one of our pickup locations.
-        </Text>
+        <Text size="medium" emphasis="bold">{heading}</Text>
+        <Text size="small" appearance="subdued">{description}</Text>
       </BlockStack>
 
       {loading && <SkeletonText inlineSize="fill" />}
@@ -160,7 +164,7 @@ function ClickCollectExtension() {
             checked={isClickCollect}
             onChange={handleToggle}
           >
-            I will collect my order in-store (free pickup)
+            {checkboxLabel}
           </Checkbox>
 
           {isClickCollect && (
@@ -170,7 +174,7 @@ function ClickCollectExtension() {
                   label="Select pickup location"
                   options={locations.map((l) => ({
                     value: l.id,
-                    label: `${l.name}${l.city ? ` — ${l.city}` : ""}`,
+                    label: l.city ? `${l.name}, ${l.city}` : l.name,
                   }))}
                   value={selectedLocationId}
                   onChange={handleLocationChange}
@@ -184,7 +188,7 @@ function ClickCollectExtension() {
               )}
 
               <Banner status="info">
-                You will receive an email when your order is ready to collect. Bring your order
+                You will receive an email when your order is ready to collect. Please bring your order
                 number or confirmation email.
               </Banner>
             </BlockStack>

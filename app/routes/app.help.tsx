@@ -35,23 +35,23 @@ export default function HelpPage() {
               <Text as="h2" variant="headingMd">How Click &amp; Collect works</Text>
               <List type="number">
                 <List.Item>
-                  <Text as="span" fontWeight="semibold">Customer sees the option at checkout</Text> — a "Click &amp; Collect" section
+                  <Text as="span" fontWeight="semibold">Customer sees the option at checkout</Text> -a "Click &amp; Collect" section
                   appears before the delivery address. They tick the checkbox and choose a pickup location.
                 </List.Item>
                 <List.Item>
-                  <Text as="span" fontWeight="semibold">Order is placed with pickup attributes</Text> — the order is automatically tagged
+                  <Text as="span" fontWeight="semibold">Order is placed with pickup attributes</Text> -the order is automatically tagged
                   "click-collect" in Shopify admin, with the pickup location in the order notes.
                 </List.Item>
                 <List.Item>
-                  <Text as="span" fontWeight="semibold">You see it in the app</Text> — the order appears on your dashboard under "Pending pickup".
+                  <Text as="span" fontWeight="semibold">You see it in the app</Text> -the order appears on your dashboard under "Pending pickup".
                   Prepare the order for collection.
                 </List.Item>
                 <List.Item>
-                  <Text as="span" fontWeight="semibold">Mark as "Ready"</Text> — click "Mark as Ready to Collect" and the customer receives
+                  <Text as="span" fontWeight="semibold">Mark as "Ready"</Text> -click "Mark as Ready to Collect" and the customer receives
                   an email notification with pickup instructions.
                 </List.Item>
                 <List.Item>
-                  <Text as="span" fontWeight="semibold">Customer collects</Text> — when they arrive, mark the order as "Collected" to complete the flow.
+                  <Text as="span" fontWeight="semibold">Customer collects</Text> -when they arrive, mark the order as "Collected" to complete the flow.
                 </List.Item>
               </List>
             </BlockStack>
@@ -71,7 +71,7 @@ export default function HelpPage() {
               </Text>
               <List type="number">
                 <List.Item>
-                  Go to <Text as="span" fontWeight="semibold">Settings → Checkout → Customize</Text> in your Shopify admin
+                  Go to <Text as="span" fontWeight="semibold">Settings >Checkout >Customize</Text> in your Shopify admin
                 </List.Item>
                 <List.Item>
                   Make sure you are on the <Text as="span" fontWeight="semibold">Checkout</Text> page (not Thank You or Order Status)
@@ -80,7 +80,7 @@ export default function HelpPage() {
                   In the left sidebar, look for the <Text as="span" fontWeight="semibold">Delivery</Text> section
                 </List.Item>
                 <List.Item>
-                  The "Click &amp; Collect — Pickup Selector" should already appear under Delivery. If not, click the Apps icon in the top toolbar and add it
+                  The "Click &amp; Collect -Pickup Selector" should already appear under Delivery. If not, click the Apps icon in the top toolbar and add it
                 </List.Item>
                 <List.Item>
                   Click <Text as="span" fontWeight="semibold">Save</Text>
@@ -102,7 +102,7 @@ export default function HelpPage() {
                     Click <Text as="span" fontWeight="semibold">Add block</Text> in the Main section
                   </List.Item>
                   <List.Item>
-                    Find and add "Click &amp; Collect — Pickup Selector" from the Apps list
+                    Find and add "Click &amp; Collect -Pickup Selector" from the Apps list
                   </List.Item>
                   <List.Item>
                     Click <Text as="span" fontWeight="semibold">Save</Text>
@@ -126,7 +126,7 @@ export default function HelpPage() {
               </Text>
               <List type="number">
                 <List.Item>
-                  Go to <Text as="span" fontWeight="semibold">Online Store → Themes → Customize</Text>
+                  Go to <Text as="span" fontWeight="semibold">Online Store >Themes >Customize</Text>
                 </List.Item>
                 <List.Item>
                   Switch the page dropdown to <Text as="span" fontWeight="semibold">Cart</Text>
@@ -158,10 +158,10 @@ export default function HelpPage() {
               </Text>
               <List>
                 <List.Item>
-                  <Text as="span" fontWeight="semibold">Ready to collect</Text> — sent when you mark an order as "Ready". Includes the pickup location address, hours, and collection instructions.
+                  <Text as="span" fontWeight="semibold">Ready to collect</Text> -sent when you mark an order as "Ready". Includes the pickup location address, hours, and collection instructions.
                 </List.Item>
                 <List.Item>
-                  <Text as="span" fontWeight="semibold">Collected confirmation</Text> — sent when you mark an order as "Collected". A simple thank-you email.
+                  <Text as="span" fontWeight="semibold">Collected confirmation</Text> -sent when you mark an order as "Collected". A simple thank-you email.
                 </List.Item>
               </List>
               <Text as="p" tone="subdued">
@@ -177,7 +177,7 @@ export default function HelpPage() {
                 </Text>
                 <List type="number">
                   <List.Item>
-                    Go to <Text as="span" fontWeight="semibold">Settings → Notifications → Order confirmation</Text>
+                    Go to <Text as="span" fontWeight="semibold">Settings >Notifications >Order confirmation</Text>
                   </List.Item>
                   <List.Item>Click <Text as="span" fontWeight="semibold">Edit code</Text></List.Item>
                   <List.Item>
@@ -211,14 +211,14 @@ export default function HelpPage() {
               <Text as="h2" variant="headingMd">Managing orders</Text>
               <List>
                 <List.Item>
-                  <Text as="span" fontWeight="semibold">Identifying click &amp; collect orders in Shopify admin</Text> — orders are automatically
+                  <Text as="span" fontWeight="semibold">Identifying click &amp; collect orders in Shopify admin</Text> -orders are automatically
                   tagged with "click-collect" and the pickup location is added to the order notes. You can filter by tag in your Orders page.
                 </List.Item>
                 <List.Item>
-                  <Text as="span" fontWeight="semibold">Order statuses</Text> — Pending (order received, preparing) → Ready (order ready, customer notified) → Collected (customer picked up, complete).
+                  <Text as="span" fontWeight="semibold">Order statuses</Text> -Pending (order received, preparing) >Ready (order ready, customer notified) >Collected (customer picked up, complete).
                 </List.Item>
                 <List.Item>
-                  <Text as="span" fontWeight="semibold">Resend notifications</Text> — if a customer hasn&apos;t collected, you can resend the "Ready" notification from the order detail page.
+                  <Text as="span" fontWeight="semibold">Resend notifications</Text> -if a customer hasn&apos;t collected, you can resend the "Ready" notification from the order detail page.
                 </List.Item>
               </List>
             </BlockStack>
@@ -234,7 +234,7 @@ export default function HelpPage() {
               <BlockStack gap="200">
                 <Text as="p" fontWeight="semibold">Does this work on non-Plus Shopify plans?</Text>
                 <Text as="p" tone="subdued">
-                  Yes. The checkout extension requires Shopify Plus. For other plans, use the cart page theme extension — it saves pickup attributes to the cart which flow through to the order.
+                  Yes. The checkout extension requires Shopify Plus. For other plans, use the cart page theme extension -it saves pickup attributes to the cart which flow through to the order.
                 </Text>
               </BlockStack>
 

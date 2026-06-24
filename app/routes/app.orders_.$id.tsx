@@ -359,7 +359,7 @@ export default function OrderDetailPage() {
             <Card>
               <BlockStack gap="200">
                 <Text variant="headingMd" as="h2">Customer</Text>
-                <Text as="p">{order.customerName || "—"}</Text>
+                <Text as="p">{order.customerName || "-"}</Text>
                 {order.customerEmail && <Text as="p" tone="subdued">{order.customerEmail}</Text>}
                 {order.customerPhone && <Text as="p" tone="subdued">{order.customerPhone}</Text>}
               </BlockStack>

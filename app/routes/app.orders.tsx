@@ -203,7 +203,7 @@ export default function OrdersPage() {
                             </Text>
                           </BlockStack>
                           <Button variant="plain" size="slim" onClick={() => navigate(`/app/orders/${order.id}`)}>
-                            Manage →
+                            Manage
                           </Button>
                         </InlineStack>
                       </Box>

@@ -267,7 +267,7 @@ export default function LocationFormPage() {
                             onChange={(val) => setDayHours(day, "open", val)}
                             autoComplete="off"
                           />
-                          <Text as="span" tone="subdued">–</Text>
+                          <Text as="span" tone="subdued">to</Text>
                           <TextField
                             label="Close"
                             labelHidden

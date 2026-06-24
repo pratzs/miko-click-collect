@@ -47,7 +47,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const customerPhone = order.customer?.phone ?? order.billing_address?.phone ?? order.phone ?? "";
 
   const lineItems = (order.line_items ?? []).map((li) => ({
-    title: li.variant_title ? `${li.title} – ${li.variant_title}` : li.title,
+    title: li.variant_title ? `${li.title} -${li.variant_title}` : li.title,
     quantity: li.quantity,
     price: li.price,
   }));
@@ -101,7 +101,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           variables: {
             input: {
               id: order.admin_graphql_api_id,
-              note: `🏬 CLICK & COLLECT — Pickup at: ${locationName}, ${location.address}, ${location.city} ${location.postcode}`,
+              note: `🏬 CLICK & COLLECT -Pickup at: ${locationName}, ${location.address}, ${location.city} ${location.postcode}`,
             },
           },
         },

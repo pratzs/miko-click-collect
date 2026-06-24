@@ -1,5 +1,5 @@
 {% comment %}
-  Miko Click & Collect — Pickup Selector
+  Miko Click & Collect,Pickup Selector
   Add this block to the cart page. Customers toggle pickup,
   select a location, and the choice is saved as cart attributes
   that flow through to the order.
@@ -27,7 +27,7 @@
         <div class="miko-cc__toggle-icon">🛍️</div>
         <div class="miko-cc__toggle-text">
           <p class="miko-cc__toggle-title">Collect in-store (free)</p>
-          <p class="miko-cc__toggle-sub">Skip shipping — pick up your order from one of our locations.</p>
+          <p class="miko-cc__toggle-sub">Skip shipping and pick up your order from one of our locations.</p>
         </div>
         <div class="miko-cc__toggle-check">
           <svg width="14" height="14" viewBox="0 0 20 20" fill="white" style="display:none" id="miko-cc-checkmark">
@@ -83,7 +83,7 @@
     var days = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' };
     var todayKey = ['sun','mon','tue','wed','thu','fri','sat'][new Date().getDay()];
     var h = loc.hours && loc.hours[todayKey];
-    var hoursText = h ? (h.closed ? 'Closed today' : 'Today: ' + h.open + ' – ' + h.close) : '';
+    var hoursText = h ? (h.closed ? 'Closed today' : 'Today: ' + h.open + ' -' + h.close) : '';
 
     var prepText = loc.prepTimeMinutes < 60 ? loc.prepTimeMinutes + ' min'
       : loc.prepTimeMinutes === 60 ? '1 hour'
@@ -186,7 +186,7 @@
         locations.forEach(function(loc, i) {
           var opt = document.createElement('option');
           opt.value = i;
-          opt.textContent = loc.name + (loc.city ? ' — ' + loc.city : '');
+          opt.textContent = loc.name + (loc.city ? ',' + loc.city : '');
           selectEl.appendChild(opt);
         });
       } else if (selectEl) {

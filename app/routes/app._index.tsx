@@ -166,7 +166,7 @@ export default function DashboardPage() {
     if (window.top) window.top.location.href = url;
   };
 
-  // Phase 1: fresh install — nothing set up
+  // Phase 1: fresh install -nothing set up
   if (!step1Done) {
     return (
       <Page title="Welcome to Miko Click & Collect">
@@ -237,16 +237,16 @@ export default function DashboardPage() {
                 <Text as="h2" variant="headingMd">How it works</Text>
                 <List type="number">
                   <List.Item>
-                    <Text as="span" fontWeight="semibold">Customer selects pickup at checkout</Text> — they see a "Click &amp; Collect" checkbox with your locations, hours, and prep time.
+                    <Text as="span" fontWeight="semibold">Customer selects pickup at checkout</Text> -they see a "Click &amp; Collect" checkbox with your locations, hours, and prep time.
                   </List.Item>
                   <List.Item>
-                    <Text as="span" fontWeight="semibold">Order appears in your dashboard</Text> — tagged "click-collect" in Shopify admin with the pickup location in the order notes.
+                    <Text as="span" fontWeight="semibold">Order appears in your dashboard</Text> -tagged "click-collect" in Shopify admin with the pickup location in the order notes.
                   </List.Item>
                   <List.Item>
-                    <Text as="span" fontWeight="semibold">You mark it "Ready"</Text> — the customer gets an email notification to come collect their order.
+                    <Text as="span" fontWeight="semibold">You mark it "Ready"</Text> -the customer gets an email notification to come collect their order.
                   </List.Item>
                   <List.Item>
-                    <Text as="span" fontWeight="semibold">Customer collects</Text> — you mark it "Collected" and the order is complete.
+                    <Text as="span" fontWeight="semibold">Customer collects</Text> -you mark it "Collected" and the order is complete.
                   </List.Item>
                 </List>
               </BlockStack>
@@ -278,7 +278,7 @@ export default function DashboardPage() {
             <Card>
               <BlockStack gap="300">
                 <InlineStack align="space-between" blockAlign="center">
-                  <Text as="h2" variant="headingMd">Setup guide — {completedSteps}/3 complete</Text>
+                  <Text as="h2" variant="headingMd">Setup guide -{completedSteps}/3 complete</Text>
                   <Badge tone={allDone ? "success" : "attention"}>
                     {allDone ? "All done" : "Setup in progress"}
                   </Badge>
