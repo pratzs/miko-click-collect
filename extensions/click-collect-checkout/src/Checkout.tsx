@@ -1,6 +1,7 @@
 import {
   reactExtension,
   useShop,
+  useApplyAttributeChange,
   Banner,
   BlockStack,
   Checkbox,
@@ -75,6 +76,7 @@ export default reactExtension("purchase.checkout.delivery-address.render-before"
 
 function ClickCollectExtension() {
   const { myshopifyDomain } = useShop();
+  const applyAttributeChange = useApplyAttributeChange();
 
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
@@ -95,13 +97,40 @@ function ClickCollectExtension() {
       .finally(() => setLoading(false));
   }, [myshopifyDomain]);
 
-  const handleToggle = useCallback((checked: boolean) => {
-    setIsClickCollect(checked);
-  }, []);
+  const setAttributes = useCallback(
+    async (enabled: boolean, locId: string, locName: string) => {
+      if (enabled) {
+        await applyAttributeChange({ type: "updateAttribute", key: "miko_pickup_method", value: "click_and_collect" });
+        await applyAttributeChange({ type: "updateAttribute", key: "miko_location_id", value: locId });
+        await applyAttributeChange({ type: "updateAttribute", key: "miko_location_name", value: locName });
+      } else {
+        await applyAttributeChange({ type: "updateAttribute", key: "miko_pickup_method", value: "" });
+        await applyAttributeChange({ type: "updateAttribute", key: "miko_location_id", value: "" });
+        await applyAttributeChange({ type: "updateAttribute", key: "miko_location_name", value: "" });
+      }
+    },
+    [applyAttributeChange],
+  );
 
-  const handleLocationChange = useCallback((value: string) => {
-    setSelectedLocationId(value);
-  }, []);
+  const handleToggle = useCallback(
+    (checked: boolean) => {
+      setIsClickCollect(checked);
+      const loc = locations.find((l) => l.id === selectedLocationId);
+      setAttributes(checked, selectedLocationId, loc?.name ?? "");
+    },
+    [locations, selectedLocationId, setAttributes],
+  );
+
+  const handleLocationChange = useCallback(
+    (value: string) => {
+      setSelectedLocationId(value);
+      const loc = locations.find((l) => l.id === value);
+      if (isClickCollect) {
+        setAttributes(true, value, loc?.name ?? "");
+      }
+    },
+    [locations, isClickCollect, setAttributes],
+  );
 
   if (!loading && locations.length === 0) return null;
 

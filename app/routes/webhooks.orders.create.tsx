@@ -10,7 +10,7 @@ const ATTR_LOCATION_NAME = "miko_location_name";
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { topic, shop, payload, admin } = await authenticate.webhook(request);
 
-  if (topic !== "ORDERS_PAID") return json({ ok: true });
+  if (topic !== "ORDERS_CREATE") return json({ ok: true });
 
   const order = payload as {
     id: number;
@@ -78,7 +78,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     },
   });
 
-  // Tag the order in Shopify admin (idempotent — tagsAdd won't duplicate)
+  // Tag the order and add a note in Shopify admin so it's clearly a click & collect order
   const locationName = attrs.get(ATTR_LOCATION_NAME) ?? location.name;
   if (admin) {
     try {
