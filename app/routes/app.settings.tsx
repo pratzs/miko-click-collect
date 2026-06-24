@@ -30,7 +30,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     planName: config?.planName ?? "free",
     senderName: config?.senderName ?? "",
     replyToEmail: config?.replyToEmail ?? "",
-    notifyReadySubject: config?.notifyReadySubject ?? "Your order is ready for collection! 🛍️",
+    notifyReadySubject: config?.notifyReadySubject ?? "Your order is ready for collection",
     notifyPickedUpSubject: config?.notifyPickedUpSubject ?? "Thanks for collecting your order!",
     notifyMerchantEmail: config?.notifyMerchantEmail ?? "",
     smtpHost: config?.smtpHost ?? "",

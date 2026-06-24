@@ -1,0 +1,14 @@
+api_version = "2025-07"
+
+[[extensions]]
+name = "Click & Collect - Order Actions"
+handle = "click-collect-admin"
+type = "ui_extension"
+
+[[extensions.targeting]]
+module = "./src/OrderAction.tsx"
+target = "admin.order-details.action.render"
+
+[extensions.capabilities]
+network_access = true
+api_access = "direct"

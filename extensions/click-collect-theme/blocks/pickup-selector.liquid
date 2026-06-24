@@ -24,7 +24,7 @@
     <div id="miko-cc-widget" class="miko-cc__hidden">
       <!-- Toggle -->
       <div id="miko-cc-toggle" class="miko-cc__toggle" role="button" tabindex="0" aria-pressed="false">
-        <div class="miko-cc__toggle-icon">🛍️</div>
+        <div class="miko-cc__toggle-icon"><svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor"><path d="M4 3a1 1 0 0 0-1 1v1a3 3 0 0 0 1.46 2.57A1 1 0 0 0 4 8v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8a1 1 0 0 0-.46-.43A3 3 0 0 0 17 5V4a1 1 0 0 0-1-1H4z"/></svg></div>
         <div class="miko-cc__toggle-text">
           <p class="miko-cc__toggle-title">Collect in-store (free)</p>
           <p class="miko-cc__toggle-sub">Skip shipping and pick up your order from one of our locations.</p>
@@ -41,7 +41,7 @@
         <select id="miko-cc-select" class="miko-cc__select" aria-label="Select pickup location"></select>
         <div id="miko-cc-card" class="miko-cc__location-card"></div>
         <div class="miko-cc__info">
-          📧 You'll receive an email when your order is ready to collect. Bring your order number or confirmation email.
+          You'll receive an email when your order is ready to collect. Bring your order number or confirmation email.
         </div>
       </div>
     </div>
@@ -92,10 +92,10 @@
 
     var html = '<p class="miko-cc__location-name">' + escHtml(loc.name) + '</p>';
     var addr = [loc.address, loc.city, loc.postcode].filter(Boolean).join(', ');
-    if (addr) html += '<p class="miko-cc__location-detail">📍 ' + escHtml(addr) + '</p>';
-    if (hoursText) html += '<p class="miko-cc__location-detail">🕐 ' + escHtml(hoursText) + '</p>';
-    html += '<p class="miko-cc__location-detail">⏱️ Ready in ' + escHtml(prepText) + '</p>';
-    if (loc.phone) html += '<p class="miko-cc__location-detail">📞 ' + escHtml(loc.phone) + '</p>';
+    if (addr) html += '<p class="miko-cc__location-detail">' + escHtml(addr) + '</p>';
+    if (hoursText) html += '<p class="miko-cc__location-detail">' + escHtml(hoursText) + '</p>';
+    html += '<p class="miko-cc__location-detail">Ready in' + escHtml(prepText) + '</p>';
+    if (loc.phone) html += '<p class="miko-cc__location-detail">' + escHtml(loc.phone) + '</p>';
     if (loc.collectionInstructions) {
       html += '<div class="miko-cc__location-instructions">' + escHtml(loc.collectionInstructions) + '</div>';
     }

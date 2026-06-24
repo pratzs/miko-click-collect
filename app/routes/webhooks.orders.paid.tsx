@@ -101,7 +101,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           variables: {
             input: {
               id: order.admin_graphql_api_id,
-              note: `🏬 CLICK & COLLECT -Pickup at: ${locationName}, ${location.address}, ${location.city} ${location.postcode}`,
+              note: `CLICK & COLLECT - Pickup at: ${locationName}, ${[location.address, location.city, location.postcode].filter(Boolean).join(", ")}`,
             },
           },
         },

@@ -243,7 +243,7 @@ export default function OrderDetailPage() {
                       loading={isSubmitting && confirmAction === "mark_ready"}
                       onClick={() => openConfirm("mark_ready")}
                     >
-                      ✅ Mark as Ready to Collect
+                      Mark as Ready to Collect
                     </Button>
                   )}
                   {order.status === "ready" && (
@@ -255,7 +255,7 @@ export default function OrderDetailPage() {
                         loading={isSubmitting && confirmAction === "mark_picked_up"}
                         onClick={() => openConfirm("mark_picked_up")}
                       >
-                        🛍️ Mark as Picked Up
+                        Mark as Picked Up
                       </Button>
                       {hasEmail && (
                         <Button
@@ -283,17 +283,17 @@ export default function OrderDetailPage() {
                     <BlockStack gap="200">
                       <Text variant="headingSm" as="h3">Timeline</Text>
                       <Text variant="bodySm" tone="subdued" as="p">
-                        📦 Order received: {format(new Date(order.createdAt), "d MMM yyyy h:mm a")}
+                        Order received: {format(new Date(order.createdAt), "d MMM yyyy h:mm a")}
                       </Text>
                       {order.readyAt && (
                         <Text variant="bodySm" tone="subdued" as="p">
-                          ✅ Marked ready: {format(new Date(order.readyAt), "d MMM yyyy h:mm a")}
+                          Marked ready: {format(new Date(order.readyAt), "d MMM yyyy h:mm a")}
                           {order.readyNotificationSentAt ? " · Notification sent" : " · No notification sent"}
                         </Text>
                       )}
                       {order.pickedUpAt && (
                         <Text variant="bodySm" tone="subdued" as="p">
-                          🛍️ Collected: {format(new Date(order.pickedUpAt), "d MMM yyyy h:mm a")}
+                          Collected: {format(new Date(order.pickedUpAt), "d MMM yyyy h:mm a")}
                         </Text>
                       )}
                     </BlockStack>
@@ -374,7 +374,7 @@ export default function OrderDetailPage() {
                 {location.city && (
                   <Text as="p" tone="subdued">{location.city}{location.postcode ? ` ${location.postcode}` : ""}</Text>
                 )}
-                {location.phone && <Text as="p" tone="subdued">📞 {location.phone}</Text>}
+                {location.phone && <Text as="p" tone="subdued">{location.phone}</Text>}
                 {location.collectionInstructions && (
                   <>
                     <Divider />

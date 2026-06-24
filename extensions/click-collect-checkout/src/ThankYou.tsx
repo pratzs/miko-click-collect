@@ -4,9 +4,6 @@ import {
   Banner,
   BlockStack,
   Text,
-  InlineStack,
-  Divider,
-  Heading,
 } from "@shopify/ui-extensions-react/checkout";
 
 export default reactExtension("purchase.thank-you.block.render", () => (
@@ -23,10 +20,10 @@ function ThankYouPickupBanner() {
 
   return (
     <BlockStack spacing="base">
-      <Banner status="success" title="Order ready for in-store pickup">
+      <Banner status="info" title="In-store pickup confirmed">
         <BlockStack spacing="tight">
           <Text size="medium" emphasis="bold">
-            Collect from: {locationName}
+            Pickup location: {locationName}
           </Text>
           <Text size="small" appearance="subdued">
             We will email you when your order is ready to collect. Please bring your order confirmation or order number.

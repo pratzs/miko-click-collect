@@ -38,7 +38,7 @@ export async function sendReadyToCollectEmail(
   if (!config.replyToEmail && !config.smtpHost) return false;
 
   const location = order.pickupLocation;
-  const subject = config.notifyReadySubject || "Your order is ready for collection! 🛍️";
+  const subject = config.notifyReadySubject || "Your order is ready for collection";
   const color = brandColor(config);
   const fromName = config.smtpFromName || config.senderName || config.shopName || "Your Store";
   const fromEmail = config.smtpFromEmail || config.replyToEmail;
@@ -57,8 +57,8 @@ export async function sendReadyToCollectEmail(
         </td></tr>
         <!-- Body -->
         <tr><td style="padding:40px;">
-          <h1 style="margin:0 0 8px;font-size:26px;color:#1a1a1a;">Ready for collection! ✅</h1>
-          <p style="color:#555;margin:0 0 24px;">Hi ${order.customerName || "there"}, great news — your order is ready to collect.</p>
+          <h1 style="margin:0 0 8px;font-size:26px;color:#1a1a1a;">Ready for collection</h1>
+          <p style="color:#555;margin:0 0 24px;">Hi ${order.customerName || "there"}, great news - your order is ready to collect.</p>
 
           <!-- Order box -->
           <div style="background:#f8f8f8;border-radius:8px;padding:20px;margin-bottom:24px;">
@@ -72,7 +72,7 @@ export async function sendReadyToCollectEmail(
             <p style="margin:0 0 4px;font-size:18px;font-weight:700;color:#1a1a1a;">${location.name}</p>
             ${location.address ? `<p style="margin:0 0 2px;color:#555;">${location.address}</p>` : ""}
             ${location.city ? `<p style="margin:0 0 2px;color:#555;">${location.city}${location.postcode ? ` ${location.postcode}` : ""}</p>` : ""}
-            ${location.phone ? `<p style="margin:0;color:#555;">📞 ${location.phone}</p>` : ""}
+            ${location.phone ? `<p style="margin:0;color:#555;">${location.phone}</p>` : ""}
           </div>
 
           ${location.collectionInstructions ? `
@@ -151,7 +151,7 @@ export async function sendPickedUpEmail(
       <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
         <tr><td style="background:${color};padding:32px 40px;text-align:center;">${logoBlock(config)}</td></tr>
         <tr><td style="padding:40px;">
-          <h1 style="margin:0 0 8px;font-size:26px;color:#1a1a1a;">Thank you! 🎉</h1>
+          <h1 style="margin:0 0 8px;font-size:26px;color:#1a1a1a;">Thank you</h1>
           <p style="color:#555;margin:0 0 24px;">Hi ${order.customerName || "there"}, your order ${order.shopifyOrderName} has been collected. Enjoy!</p>
           <p style="color:#888;font-size:13px;margin:0;">If you have any questions, feel free to reply to this email or contact us.</p>
         </td></tr>
