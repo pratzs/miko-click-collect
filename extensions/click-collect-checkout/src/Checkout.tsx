@@ -1,18 +1,14 @@
 import {
   reactExtension,
   useShop,
-  useApplyAttributeChange,
-  useAttributes,
   Banner,
   BlockStack,
   Checkbox,
   Select,
   Text,
   InlineStack,
-  Icon,
   Divider,
   SkeletonText,
-  Badge,
 } from "@shopify/ui-extensions-react/checkout";
 import { useState, useEffect, useCallback } from "react";
 
@@ -27,6 +23,8 @@ type Location = {
   collectionInstructions: string;
   hours: Record<string, { open: string; close: string; closed: boolean }>;
 };
+
+const APP_URL = "https://miko-click-collect-production.up.railway.app";
 
 const DAY_NAMES: Record<string, string> = {
   mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun",
@@ -66,7 +64,7 @@ function LocationCard({ location }: { location: Location }) {
         </Text>
       </InlineStack>
       {location.phone && (
-        <Text size="small" appearance="subdued">📞 {location.phone}</Text>
+        <Text size="small" appearance="subdued">Phone: {location.phone}</Text>
       )}
       {location.collectionInstructions && (
         <Text size="small" appearance="info">{location.collectionInstructions}</Text>
@@ -75,16 +73,12 @@ function LocationCard({ location }: { location: Location }) {
   );
 }
 
-const APP_URL = "https://miko-click-collect-production.up.railway.app";
-
 export default reactExtension("purchase.checkout.delivery-address.render-before", () => (
   <ClickCollectExtension />
 ));
 
 function ClickCollectExtension() {
   const { myshopifyDomain } = useShop();
-  const applyAttribute = useApplyAttributeChange();
-  const attributes = useAttributes();
 
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
@@ -92,23 +86,12 @@ function ClickCollectExtension() {
   const [isClickCollect, setIsClickCollect] = useState(false);
   const [selectedLocationId, setSelectedLocationId] = useState<string>("");
 
-  // Restore previous selection from order attributes
-  useEffect(() => {
-    const existingMethod = attributes.find((a) => a.key === "miko_pickup_method")?.value;
-    const existingLocationId = attributes.find((a) => a.key === "miko_location_id")?.value;
-    if (existingMethod === "click_and_collect") {
-      setIsClickCollect(true);
-      if (existingLocationId) setSelectedLocationId(existingLocationId);
-    }
-  }, []);
-
-  // Fetch locations from the app's public API
   useEffect(() => {
     fetch(`${APP_URL}/api/public/locations?shop=${myshopifyDomain}`)
       .then((r) => r.json())
       .then((data: { locations: Location[] }) => {
         setLocations(data.locations ?? []);
-        if (data.locations?.length > 0 && !selectedLocationId) {
+        if (data.locations?.length > 0) {
           setSelectedLocationId(data.locations[0].id);
         }
       })
@@ -116,37 +99,14 @@ function ClickCollectExtension() {
       .finally(() => setLoading(false));
   }, [myshopifyDomain]);
 
-  const handleToggle = useCallback(
-    async (checked: boolean) => {
-      setIsClickCollect(checked);
-      if (!checked) {
-        // Clear attributes
-        await applyAttribute({ type: "updateAttribute", key: "miko_pickup_method", value: "" });
-        await applyAttribute({ type: "updateAttribute", key: "miko_location_id", value: "" });
-        await applyAttribute({ type: "updateAttribute", key: "miko_location_name", value: "" });
-      } else if (selectedLocationId) {
-        const loc = locations.find((l) => l.id === selectedLocationId);
-        await applyAttribute({ type: "updateAttribute", key: "miko_pickup_method", value: "click_and_collect" });
-        await applyAttribute({ type: "updateAttribute", key: "miko_location_id", value: selectedLocationId });
-        await applyAttribute({ type: "updateAttribute", key: "miko_location_name", value: loc?.name ?? "" });
-      }
-    },
-    [applyAttribute, selectedLocationId, locations],
-  );
+  const handleToggle = useCallback((checked: boolean) => {
+    setIsClickCollect(checked);
+  }, []);
 
-  const handleLocationChange = useCallback(
-    async (value: string) => {
-      setSelectedLocationId(value);
-      const loc = locations.find((l) => l.id === value);
-      if (isClickCollect) {
-        await applyAttribute({ type: "updateAttribute", key: "miko_location_id", value });
-        await applyAttribute({ type: "updateAttribute", key: "miko_location_name", value: loc?.name ?? "" });
-      }
-    },
-    [applyAttribute, isClickCollect, locations],
-  );
+  const handleLocationChange = useCallback((value: string) => {
+    setSelectedLocationId(value);
+  }, []);
 
-  // Don't render if no locations configured
   if (!loading && locations.length === 0) return null;
 
   const selectedLocation = locations.find((l) => l.id === selectedLocationId);
@@ -156,7 +116,7 @@ function ClickCollectExtension() {
       <Divider />
 
       <BlockStack spacing="tight">
-        <Text size="medium" emphasis="bold">🛍️ Click &amp; Collect</Text>
+        <Text size="medium" emphasis="bold">Click &amp; Collect</Text>
         <Text size="small" appearance="subdued">
           Skip the wait — collect your order from one of our pickup locations.
         </Text>
@@ -175,7 +135,7 @@ function ClickCollectExtension() {
             checked={isClickCollect}
             onChange={handleToggle}
           >
-            I'll collect my order in-store (free pickup)
+            I will collect my order in-store (free pickup)
           </Checkbox>
 
           {isClickCollect && (
@@ -199,7 +159,7 @@ function ClickCollectExtension() {
               )}
 
               <Banner status="info">
-                You'll receive an email when your order is ready to collect. Bring your order
+                You will receive an email when your order is ready to collect. Bring your order
                 number or confirmation email.
               </Banner>
             </BlockStack>
