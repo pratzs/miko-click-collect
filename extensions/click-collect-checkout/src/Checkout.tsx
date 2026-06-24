@@ -3,7 +3,6 @@ import {
   useShop,
   useApplyAttributeChange,
   useAttributes,
-  useSettings,
   Banner,
   BlockStack,
   Checkbox,
@@ -76,13 +75,14 @@ function LocationCard({ location }: { location: Location }) {
   );
 }
 
-export default reactExtension("purchase.checkout.block.render", () => (
+const APP_URL = "https://miko-click-collect-production.up.railway.app";
+
+export default reactExtension("purchase.checkout.delivery-address.render-before", () => (
   <ClickCollectExtension />
 ));
 
 function ClickCollectExtension() {
   const { myshopifyDomain } = useShop();
-  const settings = useSettings();
   const applyAttribute = useApplyAttributeChange();
   const attributes = useAttributes();
 
@@ -104,13 +104,7 @@ function ClickCollectExtension() {
 
   // Fetch locations from the app's public API
   useEffect(() => {
-    const appUrl = (settings.app_url as string) || "";
-    if (!appUrl) {
-      setLoading(false);
-      return;
-    }
-
-    fetch(`${appUrl}/api/public/locations?shop=${myshopifyDomain}`)
+    fetch(`${APP_URL}/api/public/locations?shop=${myshopifyDomain}`)
       .then((r) => r.json())
       .then((data: { locations: Location[] }) => {
         setLocations(data.locations ?? []);
@@ -120,7 +114,7 @@ function ClickCollectExtension() {
       })
       .catch(() => setError("Could not load pickup locations."))
       .finally(() => setLoading(false));
-  }, [myshopifyDomain, settings.app_url]);
+  }, [myshopifyDomain]);
 
   const handleToggle = useCallback(
     async (checked: boolean) => {
