@@ -13,6 +13,9 @@ import {
   Badge,
   Box,
   Divider,
+  Banner,
+  List,
+  Icon,
 } from "@shopify/polaris";
 import {
   OrderIcon,
@@ -47,6 +50,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const plan = getPlan(planName);
   const shopHandle = shop.replace(".myshopify.com", "");
 
+  const hasEmailConfig = Boolean(config?.replyToEmail || config?.smtpHost);
+
   return json({
     planName,
     plan,
@@ -56,6 +61,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     readyCount,
     pickedUpCount,
     totalOrderCount,
+    hasEmailConfig,
     recentOrders: orders.map((o) => ({
       id: o.id,
       orderName: o.shopifyOrderName,
@@ -90,7 +96,7 @@ function StepRow({
   onAction: () => void;
 }) {
   return (
-    <Box padding="300" background="bg-surface-secondary" borderRadius="200">
+    <Box padding="300" background={done ? "bg-surface-success" : "bg-surface-secondary"} borderRadius="200">
       <InlineStack align="space-between" blockAlign="center" wrap={false} gap="400">
         <InlineStack gap="300" blockAlign="center" wrap={false}>
           <div
@@ -123,26 +129,35 @@ function StepRow({
             </Text>
           </BlockStack>
         </InlineStack>
-        {!done && (
-          <Button variant="plain" onClick={onAction}>
-            {cta}
-          </Button>
-        )}
+        <Button variant={done ? "plain" : "primary"} size="slim" onClick={onAction}>
+          {done ? "Manage" : cta}
+        </Button>
       </InlineStack>
     </Box>
   );
 }
 
 export default function DashboardPage() {
-  const { planName, plan, shopHandle, locationCount, pendingCount, readyCount, pickedUpCount, totalOrderCount, recentOrders } =
-    useLoaderData<typeof loader>();
+  const {
+    planName, plan, shopHandle, locationCount,
+    pendingCount, readyCount, pickedUpCount, totalOrderCount,
+    hasEmailConfig, recentOrders,
+  } = useLoaderData<typeof loader>();
   const navigate = useNavigate();
 
   const step1Done = locationCount > 0;
-  const step3Done = totalOrderCount > 0;
+  const step2Done = totalOrderCount > 0;
+  const step3Done = hasEmailConfig;
+  const allDone = step1Done && step2Done && step3Done;
+  const completedSteps = [step1Done, step2Done, step3Done].filter(Boolean).length;
 
   const openCheckoutEditor = () => {
-    const url = `https://admin.shopify.com/store/${shopHandle}/settings/checkout`;
+    const url = `https://admin.shopify.com/store/${shopHandle}/settings/checkout/editor`;
+    if (window.top) window.top.location.href = url;
+  };
+
+  const openThemeEditor = () => {
+    const url = `https://admin.shopify.com/store/${shopHandle}/themes/current/editor?previewPath=%2Fcart`;
     if (window.top) window.top.location.href = url;
   };
 
@@ -162,16 +177,15 @@ export default function DashboardPage() {
                 background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)",
                 borderRadius: "12px",
                 padding: "40px",
-                marginBottom: "0",
               }}
             >
               <BlockStack gap="400">
                 <Text as="h2" variant="headingXl" fontWeight="bold">
-                  <span style={{ color: "white" }}>Let&apos;s get click &amp; collect live in your store</span>
+                  <span style={{ color: "white" }}>Let customers collect orders in-store</span>
                 </Text>
                 <Text as="p" variant="bodyLg">
                   <span style={{ color: "rgba(255,255,255,0.8)" }}>
-                    Customers will be able to choose in-store pickup at checkout. Takes about 5 minutes to set up.
+                    Add in-store pickup to your checkout in minutes. Customers choose a location, you get notified, and they collect when ready.
                   </span>
                 </Text>
               </BlockStack>
@@ -180,37 +194,61 @@ export default function DashboardPage() {
 
           <Layout.Section>
             <Card>
-              <BlockStack gap="300">
-                <Text as="h2" variant="headingMd">Get started in 3 steps</Text>
-                <Text as="p" variant="bodySm" tone="subdued">
-                  Complete these steps to enable click &amp; collect for your customers.
-                </Text>
+              <BlockStack gap="400">
+                <BlockStack gap="100">
+                  <Text as="h2" variant="headingMd">Setup guide</Text>
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    Complete these steps to get click &amp; collect live. Takes about 5 minutes.
+                  </Text>
+                </BlockStack>
                 <BlockStack gap="200">
                   <StepRow
                     n={1}
                     title="Add a pickup location"
-                    description="Add your store address, opening hours, and how long orders take to prepare."
+                    description="Enter your store address, opening hours, prep time, and collection instructions."
                     cta="Add location"
-                    done={step1Done}
+                    done={false}
                     onAction={() => navigate("/app/locations/new")}
                   />
                   <StepRow
                     n={2}
-                    title="Enable Click & Collect in checkout"
-                    description="Open the checkout editor and add the Click & Collect block to your checkout flow."
+                    title="Add the extension to your checkout"
+                    description="Open the checkout editor and add the Click & Collect block. See the Help page for detailed steps."
                     cta="Open checkout editor"
                     done={false}
                     onAction={openCheckoutEditor}
                   />
                   <StepRow
                     n={3}
-                    title="Place a test order"
-                    description="Go through checkout yourself to confirm the pickup option appears correctly."
-                    cta="View your store"
-                    done={step3Done}
-                    onAction={openStorefront}
+                    title="Configure email notifications"
+                    description="Set your sender name and reply-to email so customers get pickup-ready notifications."
+                    cta="Go to settings"
+                    done={false}
+                    onAction={() => navigate("/app/settings")}
                   />
                 </BlockStack>
+              </BlockStack>
+            </Card>
+          </Layout.Section>
+
+          <Layout.Section>
+            <Card>
+              <BlockStack gap="300">
+                <Text as="h2" variant="headingMd">How it works</Text>
+                <List type="number">
+                  <List.Item>
+                    <Text as="span" fontWeight="semibold">Customer selects pickup at checkout</Text> — they see a "Click &amp; Collect" checkbox with your locations, hours, and prep time.
+                  </List.Item>
+                  <List.Item>
+                    <Text as="span" fontWeight="semibold">Order appears in your dashboard</Text> — tagged "click-collect" in Shopify admin with the pickup location in the order notes.
+                  </List.Item>
+                  <List.Item>
+                    <Text as="span" fontWeight="semibold">You mark it "Ready"</Text> — the customer gets an email notification to come collect their order.
+                  </List.Item>
+                  <List.Item>
+                    <Text as="span" fontWeight="semibold">Customer collects</Text> — you mark it "Collected" and the order is complete.
+                  </List.Item>
+                </List>
               </BlockStack>
             </Card>
           </Layout.Section>
@@ -219,9 +257,7 @@ export default function DashboardPage() {
     );
   }
 
-  // Phase 2: location added, no orders yet — show next steps + dashboard
-  const showNextSteps = step1Done && !step3Done;
-
+  // Phase 2+: location exists, show onboarding steps if not all done + dashboard
   return (
     <Page
       title="Miko Click & Collect"
@@ -231,41 +267,46 @@ export default function DashboardPage() {
           ? { content: `View ${pendingCount} pending order${pendingCount !== 1 ? "s" : ""}`, onAction: () => navigate("/app/orders?status=pending") }
           : { content: "View all orders", onAction: () => navigate("/app/orders") }
       }
+      secondaryActions={[
+        { content: "Help & setup guide", onAction: () => navigate("/app/help") },
+      ]}
     >
       <Layout>
-        {/* Next steps nudge (shown until first order comes in) */}
-        {showNextSteps && (
+        {/* Setup progress (shown until all steps are done) */}
+        {!allDone && (
           <Layout.Section>
             <Card>
               <BlockStack gap="300">
                 <InlineStack align="space-between" blockAlign="center">
-                  <Text as="h2" variant="headingMd">Almost there — 2 steps left</Text>
-                  <Badge tone="attention">Setup in progress</Badge>
+                  <Text as="h2" variant="headingMd">Setup guide — {completedSteps}/3 complete</Text>
+                  <Badge tone={allDone ? "success" : "attention"}>
+                    {allDone ? "All done" : "Setup in progress"}
+                  </Badge>
                 </InlineStack>
                 <BlockStack gap="200">
                   <StepRow
                     n={1}
                     title="Add a pickup location"
-                    description={`${locationCount} active location${locationCount !== 1 ? "s" : ""} configured.`}
-                    cta="Manage"
-                    done={true}
-                    onAction={() => navigate("/app/locations")}
+                    description={step1Done ? `${locationCount} active location${locationCount !== 1 ? "s" : ""} configured.` : "Enter your store address, hours, and prep time."}
+                    cta={step1Done ? "Manage" : "Add location"}
+                    done={step1Done}
+                    onAction={() => navigate(step1Done ? "/app/locations" : "/app/locations/new")}
                   />
                   <StepRow
                     n={2}
-                    title="Enable Click & Collect in checkout"
-                    description="Open the checkout editor, search for Click & Collect, and add it to your checkout."
-                    cta="Open checkout editor"
-                    done={false}
-                    onAction={openCheckoutEditor}
+                    title="Place a test order with click & collect"
+                    description={step2Done ? `${totalOrderCount} click & collect order${totalOrderCount !== 1 ? "s" : ""} received.` : "Go through checkout and select 'I will collect my order in-store' to verify everything works."}
+                    cta={step2Done ? "View orders" : "View store"}
+                    done={step2Done}
+                    onAction={step2Done ? () => navigate("/app/orders") : openStorefront}
                   />
                   <StepRow
                     n={3}
-                    title="Place a test order"
-                    description="Go through checkout yourself to confirm the pickup option appears for customers."
-                    cta="View your store"
+                    title="Configure email notifications"
+                    description={step3Done ? "Email notifications are configured." : "Set sender name and reply-to email so customers get notified when orders are ready."}
+                    cta={step3Done ? "Manage" : "Configure"}
                     done={step3Done}
-                    onAction={openStorefront}
+                    onAction={() => navigate("/app/settings")}
                   />
                 </BlockStack>
               </BlockStack>
@@ -301,7 +342,7 @@ export default function DashboardPage() {
             <Card>
               <BlockStack gap="200">
                 <InlineStack align="space-between">
-                  <Text variant="headingSm" as="h3" tone="subdued">Collected today</Text>
+                  <Text variant="headingSm" as="h3" tone="subdued">Collected</Text>
                   <Box><OrderIcon width={20} /></Box>
                 </InlineStack>
                 <Text variant="heading2xl" as="p">{pickedUpCount}</Text>
@@ -324,7 +365,9 @@ export default function DashboardPage() {
                 <Box padding="600">
                   <BlockStack gap="200" align="center">
                     <Text as="p" tone="subdued" alignment="center">No click &amp; collect orders yet.</Text>
-                    <Text as="p" tone="subdued" alignment="center">Once customers choose pickup at checkout, orders appear here.</Text>
+                    <Text as="p" tone="subdued" alignment="center">
+                      Orders appear here when customers choose in-store pickup at checkout.
+                    </Text>
                   </BlockStack>
                 </Box>
               ) : (
@@ -385,6 +428,19 @@ export default function DashboardPage() {
                 )}
               </BlockStack>
             </Card>
+
+            {!hasEmailConfig && (
+              <Card>
+                <BlockStack gap="300">
+                  <Banner tone="warning" title="Email not configured">
+                    <Text as="p" variant="bodySm">
+                      Customers won&apos;t receive pickup-ready notifications until you set up email in Settings.
+                    </Text>
+                  </Banner>
+                  <Button onClick={() => navigate("/app/settings")}>Configure email</Button>
+                </BlockStack>
+              </Card>
+            )}
           </BlockStack>
         </Layout.Section>
       </Layout>

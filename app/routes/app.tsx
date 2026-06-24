@@ -33,6 +33,7 @@ export default function App() {
         <Link to="/app/locations">Locations</Link>
         <Link to="/app/settings">Settings</Link>
         <Link to="/app/pricing">Pricing</Link>
+        <Link to="/app/help">Help</Link>
       </NavMenu>
       <div style={{ paddingBottom: "3rem" }}>
         <Outlet />
