@@ -1,4 +1,5 @@
 api_version = "2025-07"
+uid = "55b363fe-46d7-83d0-9d54-37d6dbe2d57557316b6e"
 
 [[extensions]]
 name = "Click & Collect - Order Actions"
@@ -11,4 +12,4 @@ target = "admin.order-details.action.render"
 
 [extensions.capabilities]
 network_access = true
-api_access = "direct"
+api_access = true
