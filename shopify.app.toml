@@ -1,46 +1,48 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
-name = "Miko Click & Collect"
-client_id = "PLACEHOLDER_CLIENT_ID"
+client_id = "f19e6148d0f330661fc2a3e5c70479d4"
+name = "Miko Click and Collect"
 application_url = "https://miko-click-collect-production.up.railway.app"
 embedded = true
 
-[access_scopes]
-scopes = "read_products,read_orders,write_orders,read_customers,write_customers"
-
-[auth]
-redirect_urls = [
-  "https://miko-click-collect-production.up.railway.app/auth/callback",
-  "http://localhost:3000/auth/callback"
-]
+[build]
+automatically_update_urls_on_dev = false
+dev_store_url = "pratham-testing-store.myshopify.com"
 
 [webhooks]
 api_version = "2026-04"
 
   [[webhooks.subscriptions]]
-  uri = "/webhooks/orders/paid"
-  topics = ["orders/paid"]
-
-  [[webhooks.subscriptions]]
-  uri = "/webhooks/orders/cancelled"
-  topics = ["orders/cancelled"]
-
-  [[webhooks.subscriptions]]
-  uri = "/webhooks/app/uninstalled"
-  topics = ["app/uninstalled"]
-
-  [[webhooks.subscriptions]]
   uri = "/webhooks/customers/data_request"
-  compliance_topics = ["customers/data_request"]
+  compliance_topics = [ "customers/data_request" ]
 
   [[webhooks.subscriptions]]
   uri = "/webhooks/customers/redact"
-  compliance_topics = ["customers/redact"]
+  compliance_topics = [ "customers/redact" ]
 
   [[webhooks.subscriptions]]
   uri = "/webhooks/shop/redact"
-  compliance_topics = ["shop/redact"]
+  compliance_topics = [ "shop/redact" ]
 
-[build]
-automatically_update_urls_on_dev = false
-dev_store_url = "pratham-testing-store.myshopify.com"
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/uninstalled"
+  topics = [ "app/uninstalled" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/orders/cancelled"
+  topics = [ "orders/cancelled" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/orders/paid"
+  topics = [ "orders/paid" ]
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_products,read_orders,write_orders"
+optional_scopes = [ ]
+use_legacy_install_flow = false
+
+[auth]
+redirect_urls = [
+  "https://miko-click-collect-production.up.railway.app/auth/callback"
+]

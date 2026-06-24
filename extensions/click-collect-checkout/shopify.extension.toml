@@ -1,4 +1,5 @@
 api_version = "2026-04"
+uid = "b45554fe-ea59-553d-69cb-caa1fc337815617fc945"
 
 [[extensions]]
 name = "Click & Collect — Pickup Selector"
