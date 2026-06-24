@@ -95,12 +95,19 @@ function OrderBlock() {
 
   async function fetchOrder() {
     try {
-      const res = await fetch(`${APP_URL}/api/admin/order-status?orderGid=${encodeURIComponent(orderGid!)}`);
+      const url = `${APP_URL}/api/admin/order-status?orderGid=${encodeURIComponent(orderGid!)}`;
+      const res = await fetch(url);
       if (res.ok) {
         const json = await res.json();
         setOrder(json.order);
+      } else {
+        const text = await res.text();
+        setMessage({ tone: "critical", text: `API ${res.status}: ${text}` });
       }
-    } catch {}
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setMessage({ tone: "critical", text: `Fetch: ${msg}` });
+    }
     setLoading(false);
   }
 

@@ -90,18 +90,29 @@ function OrderActionExtension() {
 
   async function fetchOrder() {
     try {
-      const res = await fetch(
-        `${APP_URL}/api/admin/order-status?orderGid=${encodeURIComponent(orderGid!)}`,
-      );
+      const url = `${APP_URL}/api/admin/order-status?orderGid=${encodeURIComponent(orderGid!)}`;
+      const res = await fetch(url);
       if (res.status === 404) {
         setNotClickCollect(true);
         setLoading(false);
         return;
       }
+      if (!res.ok) {
+        const text = await res.text();
+        setError(`API error ${res.status}: ${text}`);
+        setLoading(false);
+        return;
+      }
       const json = await res.json();
+      if (!json.order) {
+        setError(`No order in response: ${JSON.stringify(json)}`);
+        setLoading(false);
+        return;
+      }
       setOrder(json.order);
-    } catch {
-      setError("Could not load order details");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(`Fetch failed: ${msg}`);
     }
     setLoading(false);
   }
