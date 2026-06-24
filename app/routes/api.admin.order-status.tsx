@@ -16,8 +16,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     return json({ error: "Missing orderGid" }, { status: 400, headers: CORS });
   }
 
+  const gid = orderGid.startsWith("gid://")
+    ? orderGid
+    : `gid://shopify/Order/${orderGid}`;
+
   const order = await db.clickCollectOrder.findFirst({
-    where: { shopifyOrderGid: orderGid },
+    where: { shopifyOrderGid: gid },
     include: { pickupLocation: true, shopConfig: true },
   });
 
