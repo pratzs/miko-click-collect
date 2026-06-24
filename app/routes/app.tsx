@@ -1,33 +1,55 @@
-import type { LoaderFunctionArgs } from "@remix-run/node";
+import type { HeadersFunction, LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { Outlet, useLoaderData, useLocation, useNavigate } from "@remix-run/react";
+import { Link, Outlet, useLoaderData, useRouteError } from "@remix-run/react";
+import { boundary } from "@shopify/shopify-app-remix/server";
 import { AppProvider } from "@shopify/shopify-app-remix/react";
 import { NavMenu } from "@shopify/app-bridge-react";
 import polarisStyles from "@shopify/polaris/build/esm/styles.css?url";
 import { authenticate } from "../shopify.server";
+import { db } from "../db.server";
 
 export const links = () => [{ rel: "stylesheet", href: polarisStyles }];
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
+
+  await db.shopConfig.upsert({
+    where: { shop: session.shop },
+    create: { shop: session.shop, accessToken: session.accessToken || "" },
+    update: { accessToken: session.accessToken || "" },
+  });
+
   return json({ apiKey: process.env.SHOPIFY_API_KEY || "" });
 };
 
 export default function App() {
   const { apiKey } = useLoaderData<typeof loader>();
-  const navigate = useNavigate();
-  const location = useLocation();
 
   return (
     <AppProvider isEmbeddedApp apiKey={apiKey}>
       <NavMenu>
-        <a href="/app" rel="home">Dashboard</a>
-        <a href="/app/orders">Orders</a>
-        <a href="/app/locations">Locations</a>
-        <a href="/app/settings">Settings</a>
-        <a href="/app/pricing">Pricing</a>
+        <Link to="/app" rel="home">Dashboard</Link>
+        <Link to="/app/orders">Orders</Link>
+        <Link to="/app/locations">Locations</Link>
+        <Link to="/app/settings">Settings</Link>
+        <Link to="/app/pricing">Pricing</Link>
       </NavMenu>
-      <Outlet />
+      <div style={{ paddingBottom: "3rem" }}>
+        <Outlet />
+      </div>
     </AppProvider>
   );
 }
+
+export function ErrorBoundary() {
+  const error = useRouteError();
+  // Suppress the brief 401/302 flash during App Bridge token exchange.
+  if (error instanceof Response && (error.status === 401 || error.status === 302)) {
+    return null;
+  }
+  return boundary.error(error);
+}
+
+export const headers: HeadersFunction = (headersArgs) => {
+  return boundary.headers(headersArgs);
+};
