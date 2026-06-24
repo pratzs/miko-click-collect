@@ -1,4 +1,5 @@
 api_version = "2025-07"
+uid = "c227835f-f48a-eb31-a75c-e7c47468cdc47d3ef815"
 
 [[extensions]]
 name = "Click & Collect - Order Block"
