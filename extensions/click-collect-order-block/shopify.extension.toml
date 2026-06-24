@@ -1,0 +1,14 @@
+api_version = "2025-07"
+
+[[extensions]]
+name = "Click & Collect - Order Block"
+handle = "click-collect-order-block"
+type = "ui_extension"
+
+[[extensions.targeting]]
+module = "./src/OrderBlock.tsx"
+target = "admin.order-details.block.render"
+
+[extensions.capabilities]
+network_access = true
+api_access = true
