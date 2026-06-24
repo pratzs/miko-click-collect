@@ -15,17 +15,13 @@ import {
   Divider,
 } from "@shopify/polaris";
 import {
-  CheckIcon,
-  LocationIcon,
   OrderIcon,
   CheckCircleIcon,
   ClockIcon,
 } from "@shopify/polaris-icons";
-import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { db } from "../db.server";
 import { getPlan } from "../utils/plans";
-import { format } from "date-fns";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -49,10 +45,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   const planName = config?.planName ?? "free";
   const plan = getPlan(planName);
+  const shopHandle = shop.replace(".myshopify.com", "");
 
   return json({
     planName,
     plan,
+    shopHandle,
     locationCount,
     pendingCount,
     readyCount,
@@ -136,16 +134,21 @@ function StepRow({
 }
 
 export default function DashboardPage() {
-  const { planName, plan, locationCount, pendingCount, readyCount, pickedUpCount, totalOrderCount, recentOrders } =
+  const { planName, plan, shopHandle, locationCount, pendingCount, readyCount, pickedUpCount, totalOrderCount, recentOrders } =
     useLoaderData<typeof loader>();
   const navigate = useNavigate();
-  const shopify = useAppBridge();
 
   const step1Done = locationCount > 0;
   const step3Done = totalOrderCount > 0;
 
   const openCheckoutEditor = () => {
-    shopify.navigate("shopify:admin/settings/checkout");
+    const url = `https://admin.shopify.com/store/${shopHandle}/settings/checkout`;
+    if (window.top) window.top.location.href = url;
+  };
+
+  const openStorefront = () => {
+    const url = `https://${shopHandle}.myshopify.com`;
+    if (window.top) window.top.location.href = url;
   };
 
   // Phase 1: fresh install — nothing set up
@@ -205,7 +208,7 @@ export default function DashboardPage() {
                     description="Go through checkout yourself to confirm the pickup option appears correctly."
                     cta="View your store"
                     done={step3Done}
-                    onAction={() => shopify.navigate("shopify:admin/online-store")}
+                    onAction={openStorefront}
                   />
                 </BlockStack>
               </BlockStack>
@@ -262,7 +265,7 @@ export default function DashboardPage() {
                     description="Go through checkout yourself to confirm the pickup option appears for customers."
                     cta="View your store"
                     done={step3Done}
-                    onAction={() => shopify.navigate("shopify:admin/online-store")}
+                    onAction={openStorefront}
                   />
                 </BlockStack>
               </BlockStack>
