@@ -77,8 +77,7 @@ function OrderActionExtension() {
   const [success, setSuccess] = useState<string | null>(null);
   const [notClickCollect, setNotClickCollect] = useState(false);
 
-  const orderId = data?.selected?.[0]?.id;
-  const orderGid = orderId ? `gid://shopify/Order/${orderId}` : null;
+  const orderGid = data?.selected?.[0]?.id ?? null;
 
   useEffect(() => {
     if (!orderGid) {

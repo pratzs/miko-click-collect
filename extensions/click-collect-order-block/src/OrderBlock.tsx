@@ -83,8 +83,7 @@ function OrderBlock() {
   const [actionLoading, setActionLoading] = useState(false);
   const [message, setMessage] = useState<{ tone: "success" | "critical"; text: string } | null>(null);
 
-  const orderId = data?.selected?.[0]?.id;
-  const orderGid = orderId ? `gid://shopify/Order/${orderId}` : null;
+  const orderGid = data?.selected?.[0]?.id ?? null;
 
   useEffect(() => {
     if (!orderGid) {

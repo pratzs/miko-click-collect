@@ -71,7 +71,7 @@ export default function HelpPage() {
               </Text>
               <List type="number">
                 <List.Item>
-                  Go to <Text as="span" fontWeight="semibold">Settings >Checkout >Customize</Text> in your Shopify admin
+                  Go to <Text as="span" fontWeight="semibold">Settings &gt; Checkout &gt; Customize</Text> in your Shopify admin
                 </List.Item>
                 <List.Item>
                   Make sure you are on the <Text as="span" fontWeight="semibold">Checkout</Text> page (not Thank You or Order Status)
@@ -126,7 +126,7 @@ export default function HelpPage() {
               </Text>
               <List type="number">
                 <List.Item>
-                  Go to <Text as="span" fontWeight="semibold">Online Store >Themes >Customize</Text>
+                  Go to <Text as="span" fontWeight="semibold">Online Store &gt; Themes &gt; Customize</Text>
                 </List.Item>
                 <List.Item>
                   Switch the page dropdown to <Text as="span" fontWeight="semibold">Cart</Text>
@@ -177,7 +177,7 @@ export default function HelpPage() {
                 </Text>
                 <List type="number">
                   <List.Item>
-                    Go to <Text as="span" fontWeight="semibold">Settings >Notifications >Order confirmation</Text>
+                    Go to <Text as="span" fontWeight="semibold">Settings &gt; Notifications &gt; Order confirmation</Text>
                   </List.Item>
                   <List.Item>Click <Text as="span" fontWeight="semibold">Edit code</Text></List.Item>
                   <List.Item>
@@ -215,7 +215,7 @@ export default function HelpPage() {
                   tagged with "click-collect" and the pickup location is added to the order notes. You can filter by tag in your Orders page.
                 </List.Item>
                 <List.Item>
-                  <Text as="span" fontWeight="semibold">Order statuses</Text> -Pending (order received, preparing) >Ready (order ready, customer notified) >Collected (customer picked up, complete).
+                  <Text as="span" fontWeight="semibold">Order statuses</Text> -Confirmed (order received) &gt; Processing &gt; Packing &gt; Ready (customer notified) &gt; Collected (customer picked up, complete).
                 </List.Item>
                 <List.Item>
                   <Text as="span" fontWeight="semibold">Resend notifications</Text> -if a customer hasn&apos;t collected, you can resend the "Ready" notification from the order detail page.
