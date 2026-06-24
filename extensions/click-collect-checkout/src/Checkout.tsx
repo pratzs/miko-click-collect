@@ -73,7 +73,7 @@ function LocationCard({ location }: { location: Location }) {
   );
 }
 
-export default reactExtension("purchase.checkout.delivery-address.render-before", () => (
+export default reactExtension("purchase.checkout.contact.render-after", () => (
   <ClickCollectExtension />
 ));
 
@@ -107,8 +107,6 @@ function ClickCollectExtension() {
     setSelectedLocationId(value);
   }, []);
 
-  if (!loading && locations.length === 0) return null;
-
   const selectedLocation = locations.find((l) => l.id === selectedLocationId);
 
   return (
@@ -126,6 +124,10 @@ function ClickCollectExtension() {
 
       {error && (
         <Banner status="warning">{error}</Banner>
+      )}
+
+      {!loading && locations.length === 0 && (
+        <Banner status="info">No pickup locations available for this store.</Banner>
       )}
 
       {!loading && !error && locations.length > 0 && (
