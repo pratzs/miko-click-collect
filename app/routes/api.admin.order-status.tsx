@@ -1,6 +1,7 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import { db } from "../db.server";
+import { parseLineItems } from "../utils/status";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -33,6 +34,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     return json({ error: "Not a click & collect order" }, { status: 404, headers: CORS });
   }
 
+  const lineItems = parseLineItems(order.lineItemsJson);
+
   return json({
     order: {
       id: order.id,
@@ -45,6 +48,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       pickedUpAt: order.pickedUpAt?.toISOString() ?? null,
       useProcessingStep: order.shopConfig.useProcessingStep,
       usePackingStep: order.shopConfig.usePackingStep,
+      lineItems,
     },
   }, { headers: CORS });
 };

@@ -2,13 +2,9 @@ import nodemailer from "nodemailer";
 import type { ClickCollectOrder, PickupLocation, ShopConfig } from "@prisma/client";
 import { db } from "../db.server";
 
-type OrderWithLocation = ClickCollectOrder & { pickupLocation: PickupLocation };
+import type { LineItem } from "./status";
 
-interface LineItem {
-  title: string;
-  quantity: number;
-  price: string;
-}
+type OrderWithLocation = ClickCollectOrder & { pickupLocation: PickupLocation };
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 
@@ -106,39 +102,35 @@ function progressBarHtml(currentStatus: string, config: ShopConfig): string {
 
   const currentIdx = steps.findIndex((s) => s.key === currentStatus);
 
-  const stepHtml = steps
-    .map((step, i) => {
-      const isActive = i <= currentIdx;
-      const isCurrent = i === currentIdx;
-      const circleColor = isActive ? color : "#ddd";
-      const textWeight = isCurrent ? "700" : "400";
-      const textColor = isActive ? "#1a1a1a" : "#999";
-      return `
-        <td style="text-align:center;padding:0 4px;width:${100 / steps.length}%;">
-          <div style="width:28px;height:28px;border-radius:50%;background:${circleColor};color:white;display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;margin-bottom:4px;">
-            ${isActive ? "&#10003;" : i + 1}
-          </div>
-          <div style="font-size:11px;color:${textColor};font-weight:${textWeight};">${step.label}</div>
-        </td>`;
-    })
-    .join("");
+  const cols: string[] = [];
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    const isActive = i <= currentIdx;
+    const isCurrent = i === currentIdx;
+    const circleColor = isActive ? color : "#ddd";
+    const textWeight = isCurrent ? "700" : "400";
+    const textColor = isActive ? "#1a1a1a" : "#999";
 
-  const lineHtml = steps
-    .slice(0, -1)
-    .map((_, i) => {
+    cols.push(`<td style="text-align:center;vertical-align:top;width:48px;">
+      <table cellpadding="0" cellspacing="0" style="margin:0 auto;"><tr><td>
+        <div style="width:32px;height:32px;border-radius:50%;background:${circleColor};color:white;font-size:14px;font-weight:700;line-height:32px;text-align:center;">
+          ${isActive ? "&#10003;" : i + 1}
+        </div>
+      </td></tr></table>
+      <div style="font-size:11px;color:${textColor};font-weight:${textWeight};margin-top:6px;">${step.label}</div>
+    </td>`);
+
+    if (i < steps.length - 1) {
       const filled = i < currentIdx;
-      return `<td style="padding:0;height:3px;background:${filled ? color : "#ddd"};"></td>`;
-    })
-    .join('<td style="width:28px;"></td>');
+      cols.push(`<td style="vertical-align:top;padding-top:14px;">
+        <div style="height:4px;background:${filled ? color : "#e5e5e5"};border-radius:2px;"></div>
+      </td>`);
+    }
+  }
 
   return `
     <div style="margin:24px 0;">
-      <table width="100%" cellpadding="0" cellspacing="0">
-        <tr>${stepHtml}</tr>
-      </table>
-      <table width="80%" cellpadding="0" cellspacing="0" style="margin:0 auto;margin-top:-22px;">
-        <tr>${lineHtml}</tr>
-      </table>
+      <table width="100%" cellpadding="0" cellspacing="0"><tr>${cols.join("")}</tr></table>
     </div>`;
 }
 
@@ -156,12 +148,22 @@ function itemsTableHtml(order: OrderWithLocation): string {
     return isNaN(n) ? String(val) : n.toFixed(2);
   };
 
+  const STATUS_LABELS: Record<string, string> = {
+    confirmed: "Confirmed",
+    processing: "Processing",
+    packing: "Packing",
+    ready: "Ready",
+    picked_up: "Collected",
+  };
+
+  const hasItemStatuses = items.some((i) => i.status);
+
   const rows = items
     .map(
       (item) => `
       <tr>
         <td style="padding:10px 0;border-bottom:1px solid #f0f0f0;color:#1a1a1a;font-size:14px;">
-          ${item.title}
+          ${item.title}${hasItemStatuses && item.status ? `<br><span style="font-size:11px;color:#888;background:#f0f0f0;padding:2px 8px;border-radius:10px;display:inline-block;margin-top:4px;">${STATUS_LABELS[item.status] || item.status}</span>` : ""}
         </td>
         <td style="padding:10px 12px;border-bottom:1px solid #f0f0f0;color:#555;font-size:14px;text-align:center;white-space:nowrap;">
           x${item.quantity}

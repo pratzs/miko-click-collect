@@ -47,9 +47,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const customerPhone = order.customer?.phone ?? order.billing_address?.phone ?? order.phone ?? "";
 
   const lineItems = (order.line_items ?? []).map((li) => ({
-    title: li.variant_title ? `${li.title} -${li.variant_title}` : li.title,
+    title: li.variant_title ? `${li.title} - ${li.variant_title}` : li.title,
     quantity: li.quantity,
     price: li.price,
+    status: "confirmed",
   }));
 
   await db.clickCollectOrder.upsert({

@@ -16,12 +16,14 @@ import {
   TextField,
   Modal,
   ProgressBar,
+  ButtonGroup,
 } from "@shopify/polaris";
 import { useState } from "react";
 import { authenticate } from "../shopify.server";
 import { db } from "../db.server";
 import { sendStatusEmail } from "../utils/email.server";
 import { format } from "date-fns";
+import { parseLineItems, getNextStatus, minStatus, statusIndex } from "../utils/status";
 
 const ALL_STEPS = [
   { key: "confirmed", label: "Confirmed" },
@@ -47,7 +49,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     orderBy: { sentAt: "desc" },
   });
 
-  const lineItems = Array.isArray(order.lineItemsJson) ? order.lineItemsJson : [];
+  const lineItems = parseLineItems(order.lineItemsJson);
 
   return json({
     order: {
@@ -127,16 +129,21 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
       picked_up: "pickedUpAt",
     }[nextStatus];
 
+    const items = parseLineItems(order.lineItemsJson);
+    const updatedItems = items.map((item) => ({ ...item, status: nextStatus }));
+
     await db.clickCollectOrder.update({
       where: { id },
       data: {
         status: nextStatus,
+        lineItemsJson: updatedItems,
         ...(timestampField ? { [timestampField]: new Date() } : {}),
       },
     });
 
     let emailSent = false;
-    emailSent = await sendStatusEmail(order.shopConfig, { ...order, pickupLocation: order.pickupLocation }, nextStatus);
+    const updatedOrder = { ...order, lineItemsJson: updatedItems };
+    emailSent = await sendStatusEmail(order.shopConfig, { ...updatedOrder, pickupLocation: order.pickupLocation }, nextStatus);
 
     if (nextStatus === "ready" && emailSent) {
       await db.clickCollectOrder.update({
@@ -145,68 +152,83 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
       });
     }
 
-    // When marking as picked up, fulfill the order in Shopify
     if (nextStatus === "picked_up" && admin && order.shopifyOrderGid) {
-      try {
-        // Get fulfillment orders
-        const foRes = await admin.graphql(
-          `query getOrder($id: ID!) {
-            order(id: $id) {
-              fulfillmentOrders(first: 5) {
-                nodes {
-                  id
-                  status
-                  lineItems(first: 50) {
-                    nodes { id remainingQuantity }
-                  }
-                }
-              }
-            }
-          }`,
-          { variables: { id: order.shopifyOrderGid } },
-        );
-        const foData = await foRes.json();
-        const fulfillmentOrders = foData.data?.order?.fulfillmentOrders?.nodes ?? [];
-
-        for (const fo of fulfillmentOrders) {
-          if (fo.status === "CLOSED" || fo.status === "CANCELLED") continue;
-          const lineItems = fo.lineItems.nodes
-            .filter((li: { remainingQuantity: number }) => li.remainingQuantity > 0)
-            .map((li: { id: string }) => ({ id: li.id }));
-
-          if (lineItems.length === 0) continue;
-
-          await admin.graphql(
-            `mutation fulfill($fulfillment: FulfillmentV2Input!) {
-              fulfillmentCreateV2(fulfillment: $fulfillment) {
-                fulfillment { id }
-                userErrors { field message }
-              }
-            }`,
-            {
-              variables: {
-                fulfillment: {
-                  lineItemsByFulfillmentOrder: [{ fulfillmentOrderId: fo.id, fulfillmentOrderLineItems: lineItems }],
-                  trackingInfo: { company: "In-store pickup", number: "Collected" },
-                  notifyCustomer: false,
-                },
-              },
-            },
-          );
-        }
-      } catch (e) {
-        console.error("Failed to fulfill order:", e);
-      }
+      await fulfillOrder(admin, order.shopifyOrderGid);
     }
 
     const statusLabels: Record<string, string> = {
-      processing: "Order marked as processing.",
-      packing: "Order marked as packing.",
-      ready: emailSent ? "Order ready. Customer notified!" : "Order ready.",
+      processing: "All items marked as processing.",
+      packing: "All items marked as packing.",
+      ready: emailSent ? "All items ready. Customer notified!" : "All items marked as ready.",
       picked_up: "Order collected and fulfilled!",
     };
 
     return json({ ok: true, emailSent, message: statusLabels[nextStatus] ?? "Status updated." });
+  }
+
+  if (intent === "advance_item") {
+    const itemIndexStr = form.get("itemIndex") as string;
+    const nextStatus = form.get("nextStatus") as string;
+    const itemIndex = parseInt(itemIndexStr, 10);
+
+    const validStatuses = ["processing", "packing", "ready", "picked_up"];
+    if (!validStatuses.includes(nextStatus) || isNaN(itemIndex)) {
+      return json({ error: "Invalid parameters" }, { status: 400 });
+    }
+
+    const items = parseLineItems(order.lineItemsJson);
+    if (itemIndex < 0 || itemIndex >= items.length) {
+      return json({ error: "Invalid item index" }, { status: 400 });
+    }
+
+    items[itemIndex].status = nextStatus;
+
+    const derivedOrderStatus = minStatus(items.map((i) => i.status ?? "confirmed"));
+
+    const timestampField = {
+      processing: "processingAt",
+      packing: "packingAt",
+      ready: "readyAt",
+      picked_up: "pickedUpAt",
+    }[derivedOrderStatus];
+
+    const timestampData: Record<string, Date> = {};
+    if (timestampField && !order[timestampField as keyof typeof order]) {
+      timestampData[timestampField] = new Date();
+    }
+
+    await db.clickCollectOrder.update({
+      where: { id },
+      data: {
+        status: derivedOrderStatus,
+        lineItemsJson: items,
+        ...timestampData,
+      },
+    });
+
+    const allReady = items.every((i) => statusIndex(i.status ?? "confirmed") >= statusIndex("ready"));
+
+    let emailSent = false;
+    if (nextStatus === "ready" && allReady) {
+      const updatedOrder = { ...order, lineItemsJson: items };
+      emailSent = await sendStatusEmail(order.shopConfig, { ...updatedOrder, pickupLocation: order.pickupLocation }, "ready");
+      if (emailSent) {
+        await db.clickCollectOrder.update({
+          where: { id },
+          data: { readyNotificationSentAt: new Date() },
+        });
+      }
+    }
+
+    if (derivedOrderStatus === "picked_up" && admin && order.shopifyOrderGid) {
+      await fulfillOrder(admin, order.shopifyOrderGid);
+    }
+
+    return json({
+      ok: true,
+      emailSent,
+      message: `"${items[itemIndex].title}" marked as ${nextStatus.replace("_", " ")}.${allReady && nextStatus === "ready" && emailSent ? " Customer notified!" : ""}`,
+    });
   }
 
   if (intent === "save_notes") {
@@ -223,6 +245,58 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   return json({ error: "Unknown intent" }, { status: 400 });
 };
 
+async function fulfillOrder(admin: { graphql: Function }, orderGid: string) {
+  try {
+    const foRes = await admin.graphql(
+      `query getOrder($id: ID!) {
+        order(id: $id) {
+          fulfillmentOrders(first: 5) {
+            nodes {
+              id
+              status
+              lineItems(first: 50) {
+                nodes { id remainingQuantity }
+              }
+            }
+          }
+        }
+      }`,
+      { variables: { id: orderGid } },
+    );
+    const foData = await foRes.json();
+    const fulfillmentOrders = foData.data?.order?.fulfillmentOrders?.nodes ?? [];
+
+    for (const fo of fulfillmentOrders) {
+      if (fo.status === "CLOSED" || fo.status === "CANCELLED") continue;
+      const lineItems = fo.lineItems.nodes
+        .filter((li: { remainingQuantity: number }) => li.remainingQuantity > 0)
+        .map((li: { id: string }) => ({ id: li.id }));
+
+      if (lineItems.length === 0) continue;
+
+      await admin.graphql(
+        `mutation fulfill($fulfillment: FulfillmentV2Input!) {
+          fulfillmentCreateV2(fulfillment: $fulfillment) {
+            fulfillment { id }
+            userErrors { field message }
+          }
+        }`,
+        {
+          variables: {
+            fulfillment: {
+              lineItemsByFulfillmentOrder: [{ fulfillmentOrderId: fo.id, fulfillmentOrderLineItems: lineItems }],
+              trackingInfo: { company: "In-store pickup", number: "Collected" },
+              notifyCustomer: false,
+            },
+          },
+        },
+      );
+    }
+  } catch (e) {
+    console.error("Failed to fulfill order:", e);
+  }
+}
+
 const STATUS_CONFIG: Record<string, { tone: "attention" | "success" | "info" | "critical" | "warning"; label: string }> = {
   confirmed: { tone: "attention", label: "Confirmed" },
   pending: { tone: "attention", label: "Confirmed" },
@@ -231,6 +305,21 @@ const STATUS_CONFIG: Record<string, { tone: "attention" | "success" | "info" | "
   ready: { tone: "info", label: "Ready to collect" },
   picked_up: { tone: "success", label: "Collected" },
   cancelled: { tone: "critical", label: "Cancelled" },
+};
+
+const ITEM_STATUS_CONFIG: Record<string, { tone: "attention" | "success" | "info" | "warning"; label: string }> = {
+  confirmed: { tone: "attention", label: "Confirmed" },
+  processing: { tone: "warning", label: "Processing" },
+  packing: { tone: "info", label: "Packing" },
+  ready: { tone: "info", label: "Ready" },
+  picked_up: { tone: "success", label: "Collected" },
+};
+
+const NEXT_LABELS: Record<string, string> = {
+  processing: "Start Processing",
+  packing: "Start Packing",
+  ready: "Mark Ready",
+  picked_up: "Mark Collected",
 };
 
 function OrderProgressBar({ status, useProcessing, usePacking }: { status: string; useProcessing: boolean; usePacking: boolean }) {
@@ -290,7 +379,12 @@ export default function OrderDetailPage() {
 
   const [notes, setNotes] = useState(order.merchantNotes);
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
-  const [confirmNextStatus, setConfirmNextStatus] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{
+    intent: string;
+    nextStatus: string;
+    itemIndex?: number;
+    itemTitle?: string;
+  } | null>(null);
 
   const badge = STATUS_CONFIG[order.status] ?? { tone: "attention", label: order.status };
   const isSubmitting = fetcher.state !== "idle";
@@ -302,48 +396,51 @@ export default function OrderDetailPage() {
     fetcher.submit(fd, { method: "POST" });
   }
 
-  function openConfirm(nextStatus: string) {
-    setConfirmNextStatus(nextStatus);
+  function openConfirmAll(nextStatus: string) {
+    setConfirmAction({ intent: "advance_status", nextStatus });
+    setConfirmModalOpen(true);
+  }
+
+  function openConfirmItem(itemIndex: number, nextStatus: string, itemTitle: string) {
+    setConfirmAction({ intent: "advance_item", nextStatus, itemIndex, itemTitle });
     setConfirmModalOpen(true);
   }
 
   function doConfirm() {
-    if (confirmNextStatus) submitAction("advance_status", { nextStatus: confirmNextStatus });
+    if (!confirmAction) return;
+    if (confirmAction.intent === "advance_status") {
+      submitAction("advance_status", { nextStatus: confirmAction.nextStatus });
+    } else if (confirmAction.intent === "advance_item") {
+      submitAction("advance_item", {
+        nextStatus: confirmAction.nextStatus,
+        itemIndex: String(confirmAction.itemIndex),
+      });
+    }
     setConfirmModalOpen(false);
   }
 
-  // Determine next action based on current status
-  function getNextStatus(): string | null {
-    const statusOrder = ["confirmed", "pending"];
-    if (statusOrder.includes(order.status)) {
-      if (useProcessingStep) return "processing";
-      if (usePackingStep) return "packing";
-      return "ready";
-    }
-    if (order.status === "processing") {
-      return usePackingStep ? "packing" : "ready";
-    }
-    if (order.status === "packing") return "ready";
-    if (order.status === "ready") return "picked_up";
-    return null;
-  }
+  const orderNextStatus = getNextStatus(order.status, useProcessingStep, usePackingStep);
 
-  const nextStatus = getNextStatus();
-  const nextLabel: Record<string, string> = {
-    processing: "Mark as Processing",
-    packing: "Mark as Packing",
-    ready: "Mark as Ready to Collect",
-    picked_up: "Mark as Collected",
-  };
+  const lineItems = order.lineItems;
+  const hasMultipleItems = lineItems.length > 1;
+  const hasItemStatuses = lineItems.some((i) => i.status);
+  const hasMixedStatuses = hasItemStatuses && new Set(lineItems.map((i) => i.status)).size > 1;
 
-  const confirmMessages: Record<string, string> = {
-    processing: `Start processing order ${order.orderName}? The customer will be notified.`,
-    packing: `Start packing order ${order.orderName}? The customer will be notified.`,
-    ready: `Mark ${order.orderName} as ready to collect?${hasEmail ? " The customer will be notified by email." : " No email will be sent (configure email in Settings)."}`,
-    picked_up: `Confirm ${order.customerName || order.customerEmail} has collected ${order.orderName}? This will also fulfill the order in Shopify.`,
-  };
+  const confirmTitle = confirmAction
+    ? confirmAction.intent === "advance_item"
+      ? `${NEXT_LABELS[confirmAction.nextStatus] ?? "Next step"}: ${confirmAction.itemTitle}`
+      : `${NEXT_LABELS[confirmAction.nextStatus] ?? "Next step"}: All Items`
+    : "Confirm";
 
-  const lineItems = Array.isArray(order.lineItems) ? order.lineItems as Array<{ title: string; quantity: number; price: string }> : [];
+  const confirmMessage = confirmAction
+    ? confirmAction.intent === "advance_item"
+      ? `Mark "${confirmAction.itemTitle}" as ${(ITEM_STATUS_CONFIG[confirmAction.nextStatus]?.label ?? confirmAction.nextStatus).toLowerCase()}?`
+      : confirmAction.nextStatus === "picked_up"
+        ? `Confirm ${order.customerName || order.customerEmail} has collected ${order.orderName}? This will fulfill the order in Shopify.`
+        : confirmAction.nextStatus === "ready"
+          ? `Mark all items in ${order.orderName} as ready to collect?${hasEmail ? " The customer will be notified by email." : ""}`
+          : `Move all items in ${order.orderName} to ${(ITEM_STATUS_CONFIG[confirmAction.nextStatus]?.label ?? confirmAction.nextStatus).toLowerCase()}?`
+    : "";
 
   return (
     <Page
@@ -360,7 +457,7 @@ export default function OrderDetailPage() {
         <Layout.Section>
           <BlockStack gap="400">
 
-            {/* Progress bar */}
+            {/* Progress + status */}
             <Card>
               <BlockStack gap="400">
                 <InlineStack align="space-between">
@@ -379,17 +476,17 @@ export default function OrderDetailPage() {
 
                 <Divider />
 
-                {/* Action button */}
+                {/* Main action buttons */}
                 <BlockStack gap="200">
-                  {nextStatus && (
+                  {orderNextStatus && (
                     <Button
                       variant="primary"
                       size="large"
                       fullWidth
                       loading={isSubmitting}
-                      onClick={() => openConfirm(nextStatus)}
+                      onClick={() => openConfirmAll(orderNextStatus)}
                     >
-                      {nextLabel[nextStatus] ?? "Next step"}
+                      {NEXT_LABELS[orderNextStatus] ?? "Next step"} — All Items
                     </Button>
                   )}
                   {order.status === "ready" && hasEmail && (
@@ -431,7 +528,7 @@ export default function OrderDetailPage() {
                       {order.readyAt && (
                         <Text variant="bodySm" tone="subdued" as="p">
                           Ready: {format(new Date(order.readyAt), "d MMM yyyy h:mm a")}
-                          {order.readyNotificationSentAt ? " - Customer notified" : ""}
+                          {order.readyNotificationSentAt ? " — Customer notified" : ""}
                         </Text>
                       )}
                       {order.pickedUpAt && (
@@ -445,23 +542,53 @@ export default function OrderDetailPage() {
               </BlockStack>
             </Card>
 
-            {/* Items */}
+            {/* Items with per-item controls */}
             {lineItems.length > 0 && (
               <Card>
                 <BlockStack gap="300">
-                  <Text variant="headingMd" as="h2">Items</Text>
+                  <InlineStack align="space-between" blockAlign="center">
+                    <Text variant="headingMd" as="h2">Items</Text>
+                    {hasMixedStatuses && (
+                      <Badge tone="warning">Mixed status</Badge>
+                    )}
+                  </InlineStack>
                   <Divider />
-                  {lineItems.map((item, i) => (
-                    <Box key={i}>
-                      <InlineStack align="space-between">
-                        <Text as="p">{item.title}</Text>
-                        <InlineStack gap="300">
-                          <Text as="p" tone="subdued">x{item.quantity}</Text>
-                          <Text as="p">{item.price}</Text>
-                        </InlineStack>
-                      </InlineStack>
-                    </Box>
-                  ))}
+                  {lineItems.map((item, i) => {
+                    const itemStatus = item.status ?? order.status;
+                    const itemBadge = ITEM_STATUS_CONFIG[itemStatus] ?? { tone: "attention" as const, label: itemStatus };
+                    const itemNext = hasMultipleItems
+                      ? getNextStatus(itemStatus, useProcessingStep, usePackingStep)
+                      : null;
+
+                    return (
+                      <Box key={i}>
+                        <BlockStack gap="200">
+                          <InlineStack align="space-between" blockAlign="center">
+                            <BlockStack gap="100">
+                              <Text as="p" fontWeight="semibold">{item.title}</Text>
+                              <InlineStack gap="200">
+                                <Text as="p" tone="subdued">x{item.quantity}</Text>
+                                <Text as="p" tone="subdued">{order.currency} {item.price}</Text>
+                              </InlineStack>
+                            </BlockStack>
+                            <InlineStack gap="200" blockAlign="center">
+                              <Badge tone={itemBadge.tone}>{itemBadge.label}</Badge>
+                              {hasMultipleItems && itemNext && (
+                                <Button
+                                  size="slim"
+                                  loading={isSubmitting}
+                                  onClick={() => openConfirmItem(i, itemNext, item.title)}
+                                >
+                                  {NEXT_LABELS[itemNext]}
+                                </Button>
+                              )}
+                            </InlineStack>
+                          </InlineStack>
+                          {i < lineItems.length - 1 && <Divider />}
+                        </BlockStack>
+                      </Box>
+                    );
+                  })}
                   <Divider />
                   <InlineStack align="space-between">
                     <Text variant="bodyMd" fontWeight="semibold" as="p">Total</Text>
@@ -559,15 +686,19 @@ export default function OrderDetailPage() {
       <Modal
         open={confirmModalOpen}
         onClose={() => setConfirmModalOpen(false)}
-        title={nextLabel[confirmNextStatus ?? ""] ?? "Confirm action"}
+        title={confirmTitle}
         primaryAction={{
-          content: nextLabel[confirmNextStatus ?? ""] ?? "Confirm",
+          content: confirmAction
+            ? confirmAction.intent === "advance_item"
+              ? `${NEXT_LABELS[confirmAction.nextStatus] ?? "Confirm"}`
+              : `${NEXT_LABELS[confirmAction.nextStatus] ?? "Confirm"} — All`
+            : "Confirm",
           onAction: doConfirm,
         }}
         secondaryActions={[{ content: "Cancel", onAction: () => setConfirmModalOpen(false) }]}
       >
         <Modal.Section>
-          <Text as="p">{confirmMessages[confirmNextStatus ?? ""] ?? "Are you sure?"}</Text>
+          <Text as="p">{confirmMessage}</Text>
         </Modal.Section>
       </Modal>
     </Page>

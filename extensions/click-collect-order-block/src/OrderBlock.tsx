@@ -19,6 +19,13 @@ export default reactExtension(TARGET, () => <OrderBlock />);
 
 const APP_URL = "https://miko-click-collect-production.up.railway.app";
 
+interface LineItem {
+  title: string;
+  quantity: number;
+  price: string;
+  status?: string;
+}
+
 interface ClickCollectOrder {
   id: string;
   status: string;
@@ -28,6 +35,7 @@ interface ClickCollectOrder {
   pickedUpAt: string | null;
   useProcessingStep: boolean;
   usePackingStep: boolean;
+  lineItems: LineItem[];
 }
 
 const ALL_STEPS = [
@@ -56,8 +64,15 @@ const STATUS_TONES: Record<string, "warning" | "info" | "success" | "critical"> 
   picked_up: "success",
 };
 
-function getNextStatus(order: ClickCollectOrder): string | null {
-  const s = order.status;
+const NEXT_LABELS: Record<string, string> = {
+  processing: "Start Processing",
+  packing: "Start Packing",
+  ready: "Mark Ready",
+  picked_up: "Mark Collected",
+};
+
+function getNextStatus(current: string, order: ClickCollectOrder): string | null {
+  const s = current;
   if (s === "confirmed" || s === "pending") {
     if (order.useProcessingStep) return "processing";
     if (order.usePackingStep) return "packing";
@@ -69,18 +84,11 @@ function getNextStatus(order: ClickCollectOrder): string | null {
   return null;
 }
 
-const NEXT_LABELS: Record<string, string> = {
-  processing: "Start Processing",
-  packing: "Start Packing",
-  ready: "Mark Ready",
-  picked_up: "Mark Collected",
-};
-
 function OrderBlock() {
   const { data } = useApi(TARGET);
   const [order, setOrder] = useState<ClickCollectOrder | null>(null);
   const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<{ tone: "success" | "critical"; text: string } | null>(null);
 
   const orderGid = data?.selected?.[0]?.id ?? null;
@@ -106,9 +114,9 @@ function OrderBlock() {
     setLoading(false);
   }
 
-  async function handleAdvance(nextStatus: string) {
+  async function handleAdvanceAll(nextStatus: string) {
     if (!order) return;
-    setActionLoading(true);
+    setActionLoading("all");
     setMessage(null);
 
     try {
@@ -119,7 +127,7 @@ function OrderBlock() {
       });
       const json = await res.json();
       if (json.ok) {
-        setMessage({ tone: "success", text: `Updated to: ${STATUS_LABELS[nextStatus] ?? nextStatus}` });
+        setMessage({ tone: "success", text: `All items → ${STATUS_LABELS[nextStatus] ?? nextStatus}` });
         await fetchOrder();
       } else {
         setMessage({ tone: "critical", text: json.message || "Failed" });
@@ -127,7 +135,31 @@ function OrderBlock() {
     } catch {
       setMessage({ tone: "critical", text: "Network error" });
     }
-    setActionLoading(false);
+    setActionLoading(null);
+  }
+
+  async function handleAdvanceItem(itemIndex: number, nextStatus: string, itemTitle: string) {
+    if (!order) return;
+    setActionLoading(`item-${itemIndex}`);
+    setMessage(null);
+
+    try {
+      const res = await fetch(`${APP_URL}/api/admin/order-action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId: order.id, intent: `advance_${nextStatus}`, itemIndex }),
+      });
+      const json = await res.json();
+      if (json.ok) {
+        setMessage({ tone: "success", text: `${itemTitle} → ${STATUS_LABELS[nextStatus] ?? nextStatus}` });
+        await fetchOrder();
+      } else {
+        setMessage({ tone: "critical", text: json.message || "Failed" });
+      }
+    } catch {
+      setMessage({ tone: "critical", text: "Network error" });
+    }
+    setActionLoading(null);
   }
 
   if (loading) {
@@ -152,7 +184,8 @@ function OrderBlock() {
     (s) => s.key === order.status || (s.key === "confirmed" && order.status === "pending"),
   );
 
-  const next = getNextStatus(order);
+  const next = getNextStatus(order.status, order);
+  const hasMultipleItems = order.lineItems.length > 1;
 
   return (
     <AdminBlock title="Click & Collect">
@@ -192,21 +225,56 @@ function OrderBlock() {
 
         <Divider />
 
+        {/* Items with per-item status */}
+        {order.lineItems.length > 0 && (
+          <BlockStack gap="tight">
+            {order.lineItems.map((item, i) => {
+              const itemStatus = item.status ?? order.status;
+              const itemNext = hasMultipleItems ? getNextStatus(itemStatus, order) : null;
+              return (
+                <BlockStack key={i} gap="extraTight">
+                  <InlineStack gap="tight" blockAlignment="center">
+                    <Text>{item.title}</Text>
+                    <Text appearance="subdued">x{item.quantity}</Text>
+                  </InlineStack>
+                  {hasMultipleItems && (
+                    <InlineStack gap="tight" blockAlignment="center">
+                      <Badge tone={STATUS_TONES[itemStatus] ?? "warning"}>
+                        {STATUS_LABELS[itemStatus] ?? itemStatus}
+                      </Badge>
+                      {itemNext && (
+                        <Button
+                          onPress={() => handleAdvanceItem(i, itemNext, item.title)}
+                          loading={actionLoading === `item-${i}`}
+                        >
+                          {NEXT_LABELS[itemNext]}
+                        </Button>
+                      )}
+                    </InlineStack>
+                  )}
+                </BlockStack>
+              );
+            })}
+          </BlockStack>
+        )}
+
+        <Divider />
+
         {/* Location */}
         <BlockStack gap="extraTight">
           <Text fontWeight="bold">{order.locationName}</Text>
           {order.locationAddress && <Text appearance="subdued">{order.locationAddress}</Text>}
         </BlockStack>
 
-        {/* Action button */}
+        {/* Advance All button */}
         {next && (
           <>
             <Divider />
             <Button
-              onPress={() => handleAdvance(next)}
-              loading={actionLoading}
+              onPress={() => handleAdvanceAll(next)}
+              loading={actionLoading === "all"}
             >
-              {NEXT_LABELS[next] ?? "Next step"}
+              {hasMultipleItems ? `${NEXT_LABELS[next]} — All Items` : NEXT_LABELS[next] ?? "Next step"}
             </Button>
           </>
         )}
