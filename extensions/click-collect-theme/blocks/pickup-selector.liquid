@@ -7,7 +7,7 @@
 
 {{ 'click-collect.css' | asset_url | stylesheet_tag }}
 
-<div id="miko-cc" class="miko-cc" data-app-url="{{ block.settings.app_url }}">
+<div id="miko-cc" class="miko-cc" data-app-url="https://miko-click-collect-production.up.railway.app">
   {%- if request.page_type != 'cart' -%}
     <div class="miko-cc__setup-notice">
       <strong>Miko Click &amp; Collect</strong>
@@ -205,13 +205,6 @@
 {
   "name": "Click & Collect",
   "target": "section",
-  "settings": [
-    {
-      "type": "text",
-      "id": "app_url",
-      "label": "App URL",
-      "info": "Your Miko Click & Collect app URL (e.g. https://miko-click-collect-production.up.railway.app)"
-    }
-  ]
+  "settings": []
 }
 {% endschema %}
