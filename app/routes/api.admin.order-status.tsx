@@ -9,6 +9,10 @@ const CORS = {
 };
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: CORS });
+  }
+
   const url = new URL(request.url);
   const orderGid = url.searchParams.get("orderGid");
 
