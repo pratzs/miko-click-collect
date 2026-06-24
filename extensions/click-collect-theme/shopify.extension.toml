@@ -1,0 +1,10 @@
+api_version = "2026-04"
+
+[[extensions]]
+type = "theme"
+name = "Miko Click & Collect"
+handle = "click-collect-theme"
+
+[extensions.targeting]
+  [[extensions.targeting.target]]
+  target = "section"
