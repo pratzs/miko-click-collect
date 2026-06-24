@@ -32,7 +32,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const locationFilter = url.searchParams.get("location") ?? "";
 
   const whereClause: Record<string, unknown> = { shop };
-  if (statusFilter !== "all") whereClause.status = statusFilter;
+  if (statusFilter === "active") {
+    whereClause.status = { in: ["confirmed", "pending", "processing", "packing"] };
+  } else if (statusFilter !== "all") {
+    whereClause.status = statusFilter;
+  }
   if (locationFilter) whereClause.pickupLocationId = locationFilter;
 
   const [orders, locations, counts] = await Promise.all([
@@ -75,16 +79,19 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   });
 };
 
-const STATUS_BADGE: Record<string, { tone: "attention" | "success" | "info" | "critical"; label: string }> = {
-  pending: { tone: "attention", label: "Pending" },
-  ready: { tone: "info", label: "Ready to collect" },
+const STATUS_BADGE: Record<string, { tone: "attention" | "success" | "info" | "critical" | "warning"; label: string }> = {
+  confirmed: { tone: "attention", label: "Confirmed" },
+  pending: { tone: "attention", label: "Confirmed" },
+  processing: { tone: "warning", label: "Processing" },
+  packing: { tone: "info", label: "Packing" },
+  ready: { tone: "info", label: "Ready" },
   picked_up: { tone: "success", label: "Collected" },
   cancelled: { tone: "critical", label: "Cancelled" },
 };
 
 const TABS = [
   { id: "all", content: "All" },
-  { id: "pending", content: "Pending" },
+  { id: "active", content: "Active" },
   { id: "ready", content: "Ready" },
   { id: "picked_up", content: "Collected" },
 ];
@@ -112,12 +119,15 @@ export default function OrdersPage() {
     setSearchParams(params);
   }
 
+  const activeCount = (countMap["confirmed"] ?? 0) + (countMap["pending"] ?? 0) + (countMap["processing"] ?? 0) + (countMap["packing"] ?? 0);
   const tabsWithCount = TABS.map((t) => ({
     ...t,
     content:
       t.id === "all"
         ? `All (${Object.values(countMap).reduce((a, b) => a + b, 0)})`
-        : `${t.content} (${countMap[t.id] ?? 0})`,
+        : t.id === "active"
+          ? `Active (${activeCount})`
+          : `${t.content} (${countMap[t.id] ?? 0})`,
   }));
 
   return (

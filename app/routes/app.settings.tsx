@@ -14,6 +14,7 @@ import {
   Divider,
   Box,
   Select,
+  Checkbox,
 } from "@shopify/polaris";
 import { useState } from "react";
 import { authenticate } from "../shopify.server";
@@ -42,6 +43,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     brandLogoUrl: config?.brandLogoUrl ?? "",
     brandPrimaryColor: config?.brandPrimaryColor ?? "#1a1a1a",
     brandName: config?.brandName ?? "",
+    useProcessingStep: config?.useProcessingStep ?? true,
+    usePackingStep: config?.usePackingStep ?? true,
   });
 };
 
@@ -69,6 +72,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       brandLogoUrl: form.get("brandLogoUrl") as string || null,
       brandPrimaryColor: form.get("brandPrimaryColor") as string,
       brandName: form.get("brandName") as string,
+      useProcessingStep: form.get("useProcessingStep") === "true",
+      usePackingStep: form.get("usePackingStep") === "true",
     },
   });
 
@@ -93,6 +98,8 @@ export default function SettingsPage() {
   const [brandLogoUrl, setBrandLogoUrl] = useState(data.brandLogoUrl);
   const [brandPrimaryColor, setBrandPrimaryColor] = useState(data.brandPrimaryColor);
   const [brandName, setBrandName] = useState(data.brandName);
+  const [useProcessingStep, setUseProcessingStep] = useState(data.useProcessingStep);
+  const [usePackingStep, setUsePackingStep] = useState(data.usePackingStep);
 
   const canUseSmtp = hasSmtp(data.planName);
   const isSubmitting = fetcher.state !== "idle";
@@ -113,6 +120,8 @@ export default function SettingsPage() {
     fd.set("brandLogoUrl", brandLogoUrl);
     fd.set("brandPrimaryColor", brandPrimaryColor);
     fd.set("brandName", brandName);
+    fd.set("useProcessingStep", String(useProcessingStep));
+    fd.set("usePackingStep", String(usePackingStep));
     fetcher.submit(fd, { method: "POST" });
   }
 
@@ -125,6 +134,40 @@ export default function SettingsPage() {
       )}
 
       <Layout>
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="400">
+              <Text variant="headingMd" as="h2">Order progress steps</Text>
+              <Text as="p" tone="subdued">
+                Choose which progress steps to show customers. The flow always starts at "Confirmed" and ends at "Ready to collect" then "Collected". Toggle the intermediate steps to match your workflow.
+              </Text>
+              <BlockStack gap="200">
+                <Box padding="200" background="bg-surface-secondary" borderRadius="200">
+                  <Text variant="bodySm" as="p">Confirmed (always shown)</Text>
+                </Box>
+                <Checkbox
+                  label="Processing step"
+                  helpText="Show when your team starts working on the order."
+                  checked={useProcessingStep}
+                  onChange={setUseProcessingStep}
+                />
+                <Checkbox
+                  label="Packing step"
+                  helpText="Show when the order is being packed for collection."
+                  checked={usePackingStep}
+                  onChange={setUsePackingStep}
+                />
+                <Box padding="200" background="bg-surface-secondary" borderRadius="200">
+                  <Text variant="bodySm" as="p">Ready to collect (always shown)</Text>
+                </Box>
+                <Box padding="200" background="bg-surface-secondary" borderRadius="200">
+                  <Text variant="bodySm" as="p">Collected (always shown)</Text>
+                </Box>
+              </BlockStack>
+            </BlockStack>
+          </Card>
+        </Layout.Section>
+
         <Layout.Section>
           <Card>
             <BlockStack gap="400">

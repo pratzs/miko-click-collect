@@ -19,12 +19,54 @@ export default reactExtension(TARGET, () => <OrderActionExtension />);
 
 interface ClickCollectOrder {
   id: string;
-  status: "pending" | "ready" | "picked_up" | "cancelled";
+  status: string;
   locationName: string;
   locationAddress: string;
   readyAt: string | null;
   pickedUpAt: string | null;
+  useProcessingStep: boolean;
+  usePackingStep: boolean;
 }
+
+const APP_URL = "https://miko-click-collect-production.up.railway.app";
+
+const STATUS_LABELS: Record<string, string> = {
+  confirmed: "Confirmed",
+  pending: "Confirmed",
+  processing: "Processing",
+  packing: "Packing",
+  ready: "Ready to collect",
+  picked_up: "Collected",
+};
+
+const STATUS_TONES: Record<string, "warning" | "info" | "success" | "critical"> = {
+  confirmed: "warning",
+  pending: "warning",
+  processing: "warning",
+  packing: "info",
+  ready: "info",
+  picked_up: "success",
+};
+
+function getNextStatus(order: ClickCollectOrder): string | null {
+  const s = order.status;
+  if (s === "confirmed" || s === "pending") {
+    if (order.useProcessingStep) return "processing";
+    if (order.usePackingStep) return "packing";
+    return "ready";
+  }
+  if (s === "processing") return order.usePackingStep ? "packing" : "ready";
+  if (s === "packing") return "ready";
+  if (s === "ready") return "picked_up";
+  return null;
+}
+
+const NEXT_LABELS: Record<string, string> = {
+  processing: "Mark as Processing",
+  packing: "Mark as Packing",
+  ready: "Mark as Ready",
+  picked_up: "Mark as Collected",
+};
 
 function OrderActionExtension() {
   const { data, close } = useApi(TARGET);
@@ -37,8 +79,6 @@ function OrderActionExtension() {
 
   const orderId = data?.selected?.[0]?.id;
   const orderGid = orderId ? `gid://shopify/Order/${orderId}` : null;
-
-  const APP_URL = "https://miko-click-collect-production.up.railway.app";
 
   useEffect(() => {
     if (!orderGid) {
@@ -53,7 +93,6 @@ function OrderActionExtension() {
     try {
       const res = await fetch(
         `${APP_URL}/api/admin/order-status?orderGid=${encodeURIComponent(orderGid!)}`,
-        { method: "GET", headers: { "Content-Type": "application/json" } }
       );
       if (res.status === 404) {
         setNotClickCollect(true);
@@ -62,13 +101,13 @@ function OrderActionExtension() {
       }
       const json = await res.json();
       setOrder(json.order);
-    } catch (e) {
+    } catch {
       setError("Could not load order details");
     }
     setLoading(false);
   }
 
-  async function handleAction(intent: "mark_ready" | "mark_picked_up") {
+  async function handleAction(nextStatus: string) {
     if (!order) return;
     setActionLoading(true);
     setError(null);
@@ -77,21 +116,21 @@ function OrderActionExtension() {
       const res = await fetch(`${APP_URL}/api/admin/order-action`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId: order.id, intent }),
+        body: JSON.stringify({ orderId: order.id, intent: `advance_${nextStatus}` }),
       });
       const json = await res.json();
 
       if (json.ok) {
         setSuccess(
-          intent === "mark_ready"
-            ? `Order marked as ready${json.emailSent ? " - notification sent to customer" : ""}`
-            : "Order marked as collected"
+          nextStatus === "picked_up"
+            ? "Order collected and fulfilled"
+            : `Order status updated to: ${STATUS_LABELS[nextStatus] ?? nextStatus}`
         );
         await fetchOrder();
       } else {
         setError(json.message || "Action failed");
       }
-    } catch (e) {
+    } catch {
       setError("Network error, please try again");
     }
     setActionLoading(false);
@@ -101,10 +140,10 @@ function OrderActionExtension() {
     return (
       <AdminAction title="Click & Collect" primaryAction={null} secondaryAction={{ title: "Close", onAction: close }}>
         <BlockStack gap="base">
-          <InlineStack inlineAlignment="center" blockAlignment="center">
+          <InlineStack inlineAlignment="center">
             <ProgressIndicator size="small-200" />
           </InlineStack>
-          <Text>Loading order details...</Text>
+          <Text>Loading...</Text>
         </BlockStack>
       </AdminAction>
     );
@@ -113,50 +152,21 @@ function OrderActionExtension() {
   if (notClickCollect) {
     return (
       <AdminAction title="Click & Collect" primaryAction={null} secondaryAction={{ title: "Close", onAction: close }}>
-        <BlockStack gap="base">
-          <Banner tone="info">This order is not a click & collect order.</Banner>
-        </BlockStack>
+        <Banner tone="info">This is not a click & collect order.</Banner>
       </AdminAction>
     );
   }
 
-  const statusLabel =
-    order?.status === "pending"
-      ? "Pending"
-      : order?.status === "ready"
-        ? "Ready to collect"
-        : order?.status === "picked_up"
-          ? "Collected"
-          : order?.status ?? "Unknown";
-
-  const statusTone =
-    order?.status === "pending"
-      ? "warning"
-      : order?.status === "ready"
-        ? "info"
-        : order?.status === "picked_up"
-          ? "success"
-          : "warning";
-
-  const primaryAction =
-    order?.status === "pending"
-      ? {
-          title: "Mark as Ready",
-          onAction: () => handleAction("mark_ready"),
-          loading: actionLoading,
-        }
-      : order?.status === "ready"
-        ? {
-            title: "Mark as Picked Up",
-            onAction: () => handleAction("mark_picked_up"),
-            loading: actionLoading,
-          }
-        : null;
+  const next = order ? getNextStatus(order) : null;
 
   return (
     <AdminAction
       title="Click & Collect"
-      primaryAction={primaryAction}
+      primaryAction={next ? {
+        title: NEXT_LABELS[next] ?? "Next step",
+        onAction: () => handleAction(next),
+        loading: actionLoading,
+      } : null}
       secondaryAction={{ title: "Close", onAction: close }}
     >
       <BlockStack gap="base">
@@ -165,7 +175,9 @@ function OrderActionExtension() {
 
         <InlineStack gap="base" blockAlignment="center">
           <Text fontWeight="bold">Status:</Text>
-          <Badge tone={statusTone}>{statusLabel}</Badge>
+          <Badge tone={STATUS_TONES[order?.status ?? ""] ?? "warning"}>
+            {STATUS_LABELS[order?.status ?? ""] ?? order?.status}
+          </Badge>
         </InlineStack>
 
         <Divider />
@@ -173,9 +185,7 @@ function OrderActionExtension() {
         <BlockStack gap="extraTight">
           <Text fontWeight="bold">Pickup location</Text>
           <Text>{order?.locationName}</Text>
-          {order?.locationAddress && (
-            <Text appearance="subdued">{order.locationAddress}</Text>
-          )}
+          {order?.locationAddress && <Text appearance="subdued">{order.locationAddress}</Text>}
         </BlockStack>
 
         {order?.status === "picked_up" && order.pickedUpAt && (

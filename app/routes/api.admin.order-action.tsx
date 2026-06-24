@@ -1,18 +1,28 @@
 import type { ActionFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import { db } from "../db.server";
-import { sendReadyToCollectEmail, sendPickedUpEmail } from "../utils/email.server";
+import { sendStatusEmail } from "../utils/email.server";
+
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
+export const loader = async () => {
+  return new Response(null, { status: 204, headers: CORS });
+};
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   if (request.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: corsHeaders() });
+    return new Response(null, { status: 204, headers: CORS });
   }
 
   const body = await request.json();
   const { orderId, intent } = body;
 
   if (!orderId || !intent) {
-    return json({ ok: false, message: "Missing orderId or intent" }, { status: 400, headers: corsHeaders() });
+    return json({ ok: false, message: "Missing orderId or intent" }, { status: 400, headers: CORS });
   }
 
   const order = await db.clickCollectOrder.findFirst({
@@ -21,56 +31,48 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   });
 
   if (!order) {
-    return json({ ok: false, message: "Order not found" }, { status: 404, headers: corsHeaders() });
+    return json({ ok: false, message: "Order not found" }, { status: 404, headers: CORS });
   }
 
-  if (intent === "mark_ready") {
-    await db.clickCollectOrder.update({
-      where: { id: orderId },
-      data: { status: "ready", readyAt: new Date() },
-    });
-
-    let emailSent = false;
-    if (order.shopConfig.replyToEmail || order.shopConfig.smtpHost) {
-      emailSent = await sendReadyToCollectEmail(order.shopConfig, {
-        ...order,
-        pickupLocation: order.pickupLocation,
-      });
-      if (emailSent) {
-        await db.clickCollectOrder.update({
-          where: { id: orderId },
-          data: { readyNotificationSentAt: new Date() },
-        });
-      }
-    }
-
-    return json({ ok: true, emailSent }, { headers: corsHeaders() });
+  // Extract status from intent like "advance_processing" or "advance_ready"
+  const statusMatch = intent.match(/^advance_(.+)$/);
+  if (!statusMatch) {
+    return json({ ok: false, message: "Unknown intent" }, { status: 400, headers: CORS });
   }
 
-  if (intent === "mark_picked_up") {
-    await db.clickCollectOrder.update({
-      where: { id: orderId },
-      data: { status: "picked_up", pickedUpAt: new Date() },
-    });
-
-    let emailSent = false;
-    if (order.shopConfig.replyToEmail || order.shopConfig.smtpHost) {
-      emailSent = await sendPickedUpEmail(order.shopConfig, {
-        ...order,
-        pickupLocation: order.pickupLocation,
-      });
-    }
-
-    return json({ ok: true, emailSent }, { headers: corsHeaders() });
+  const nextStatus = statusMatch[1];
+  const validStatuses = ["processing", "packing", "ready", "picked_up"];
+  if (!validStatuses.includes(nextStatus)) {
+    return json({ ok: false, message: "Invalid status" }, { status: 400, headers: CORS });
   }
 
-  return json({ ok: false, message: "Unknown intent" }, { status: 400, headers: corsHeaders() });
-};
-
-function corsHeaders() {
-  return {
-    "Access-Control-Allow-Origin": "https://admin.shopify.com",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+  const timestampField: Record<string, string> = {
+    processing: "processingAt",
+    packing: "packingAt",
+    ready: "readyAt",
+    picked_up: "pickedUpAt",
   };
-}
+
+  await db.clickCollectOrder.update({
+    where: { id: orderId },
+    data: {
+      status: nextStatus,
+      ...(timestampField[nextStatus] ? { [timestampField[nextStatus]]: new Date() } : {}),
+    },
+  });
+
+  const emailSent = await sendStatusEmail(
+    order.shopConfig,
+    { ...order, pickupLocation: order.pickupLocation },
+    nextStatus,
+  );
+
+  if (nextStatus === "ready" && emailSent) {
+    await db.clickCollectOrder.update({
+      where: { id: orderId },
+      data: { readyNotificationSentAt: new Date() },
+    });
+  }
+
+  return json({ ok: true, emailSent }, { headers: CORS });
+};

@@ -68,7 +68,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       lineItemsJson: lineItems,
       totalPrice: order.total_price ?? "",
       currency: order.currency ?? "",
-      status: "pending",
+      status: "confirmed",
+      confirmedAt: new Date(),
     },
     update: {
       shopifyOrderName: order.name,

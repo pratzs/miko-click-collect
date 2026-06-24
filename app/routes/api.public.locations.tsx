@@ -27,6 +27,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       hours: true,
       prepTimeMinutes: true,
       collectionInstructions: true,
+      serviceFeeType: true,
+      serviceFeeAmount: true,
+      serviceFeeFreeAbove: true,
+      serviceFeeLabel: true,
     },
   });
 

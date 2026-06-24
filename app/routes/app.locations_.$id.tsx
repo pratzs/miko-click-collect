@@ -60,6 +60,10 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       prepTimeMinutes: location.prepTimeMinutes,
       collectionInstructions: location.collectionInstructions,
       isActive: location.isActive,
+      serviceFeeType: location.serviceFeeType,
+      serviceFeeAmount: location.serviceFeeAmount,
+      serviceFeeFreeAbove: location.serviceFeeFreeAbove,
+      serviceFeeLabel: location.serviceFeeLabel,
     },
   });
 };
@@ -100,6 +104,10 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     prepTimeMinutes: parseInt(form.get("prepTimeMinutes") as string) || 60,
     collectionInstructions: (form.get("collectionInstructions") as string) || "",
     isActive: form.get("isActive") === "true",
+    serviceFeeType: (form.get("serviceFeeType") as string) || "free",
+    serviceFeeAmount: parseFloat(form.get("serviceFeeAmount") as string) || 0,
+    serviceFeeFreeAbove: parseFloat(form.get("serviceFeeFreeAbove") as string) || 0,
+    serviceFeeLabel: (form.get("serviceFeeLabel") as string) || "",
   };
 
   if (id === "new") {
@@ -129,6 +137,10 @@ export default function LocationFormPage() {
   const [hours, setHours] = useState<Hours>(
     (location?.hours as Hours) ?? defaultHours()
   );
+  const [serviceFeeType, setServiceFeeType] = useState(location?.serviceFeeType ?? "free");
+  const [serviceFeeAmount, setServiceFeeAmount] = useState(String(location?.serviceFeeAmount ?? "0"));
+  const [serviceFeeFreeAbove, setServiceFeeFreeAbove] = useState(String(location?.serviceFeeFreeAbove ?? "0"));
+  const [serviceFeeLabel, setServiceFeeLabel] = useState(location?.serviceFeeLabel ?? "");
 
   const isSubmitting = fetcher.state !== "idle";
 
@@ -148,6 +160,10 @@ export default function LocationFormPage() {
     fd.set("collectionInstructions", instructions);
     fd.set("isActive", String(isActive));
     fd.set("hours", JSON.stringify(hours));
+    fd.set("serviceFeeType", serviceFeeType);
+    fd.set("serviceFeeAmount", serviceFeeAmount);
+    fd.set("serviceFeeFreeAbove", serviceFeeFreeAbove);
+    fd.set("serviceFeeLabel", serviceFeeLabel);
     if (extra) Object.entries(extra).forEach(([k, v]) => fd.set(k, v));
     fetcher.submit(fd, { method: "POST" });
   }
@@ -235,6 +251,58 @@ export default function LocationFormPage() {
                 onChange={setIsActive}
                 helpText="Inactive locations won't appear as options at checkout."
               />
+            </BlockStack>
+          </Card>
+        </Layout.Section>
+
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="400">
+              <Text variant="headingMd" as="h2">Pickup service fee</Text>
+              <Text as="p" tone="subdued">
+                Charge a fee for packing and preparing orders for collection, like supermarkets and electronics retailers.
+              </Text>
+              <Select
+                label="Fee type"
+                options={[
+                  { label: "Free pickup", value: "free" },
+                  { label: "Fixed fee", value: "fixed" },
+                  { label: "Percentage of order total", value: "percentage" },
+                ]}
+                value={serviceFeeType}
+                onChange={setServiceFeeType}
+              />
+              {serviceFeeType !== "free" && (
+                <>
+                  <InlineGrid columns={2} gap="400">
+                    <TextField
+                      label={serviceFeeType === "fixed" ? "Fee amount ($)" : "Fee percentage (%)"}
+                      value={serviceFeeAmount}
+                      onChange={setServiceFeeAmount}
+                      type="number"
+                      autoComplete="off"
+                      placeholder={serviceFeeType === "fixed" ? "5.00" : "3"}
+                    />
+                    <TextField
+                      label="Free above order total ($)"
+                      value={serviceFeeFreeAbove}
+                      onChange={setServiceFeeFreeAbove}
+                      type="number"
+                      autoComplete="off"
+                      placeholder="0"
+                      helpText="Set to 0 to always charge. Otherwise fee is waived for orders above this amount."
+                    />
+                  </InlineGrid>
+                  <TextField
+                    label="Fee label (shown to customer)"
+                    value={serviceFeeLabel}
+                    onChange={setServiceFeeLabel}
+                    autoComplete="off"
+                    placeholder="Packing fee"
+                    helpText="Leave blank for default: 'Pickup service fee'"
+                  />
+                </>
+              )}
             </BlockStack>
           </Card>
         </Layout.Section>

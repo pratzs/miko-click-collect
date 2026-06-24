@@ -24,6 +24,10 @@ type Location = {
   prepTimeMinutes: number;
   collectionInstructions: string;
   hours: Record<string, { open: string; close: string; closed: boolean }>;
+  serviceFeeType: string;
+  serviceFeeAmount: number;
+  serviceFeeFreeAbove: number;
+  serviceFeeLabel: string;
 };
 
 const APP_URL = "https://miko-click-collect-production.up.railway.app";
@@ -37,6 +41,24 @@ function formatPrepTime(minutes: number): string {
   return "Next day";
 }
 
+function formatFee(location: Location): string | null {
+  if (location.serviceFeeType === "free") return null;
+  const label = location.serviceFeeLabel || "Pickup service fee";
+  if (location.serviceFeeType === "fixed") {
+    const freeText = location.serviceFeeFreeAbove > 0
+      ? ` (free on orders over $${location.serviceFeeFreeAbove})`
+      : "";
+    return `${label}: $${location.serviceFeeAmount.toFixed(2)}${freeText}`;
+  }
+  if (location.serviceFeeType === "percentage") {
+    const freeText = location.serviceFeeFreeAbove > 0
+      ? ` (free on orders over $${location.serviceFeeFreeAbove})`
+      : "";
+    return `${label}: ${location.serviceFeeAmount}% of order total${freeText}`;
+  }
+  return null;
+}
+
 function LocationCard({ location }: { location: Location }) {
   const todayHours = location.hours?.[TODAY_KEY];
   const hoursText = todayHours
@@ -44,6 +66,8 @@ function LocationCard({ location }: { location: Location }) {
       ? "Closed today"
       : `Today: ${todayHours.open} - ${todayHours.close}`
     : null;
+
+  const feeText = formatFee(location);
 
   return (
     <BlockStack spacing="tight">
@@ -64,8 +88,14 @@ function LocationCard({ location }: { location: Location }) {
       {location.phone && (
         <Text size="small" appearance="subdued">Phone: {location.phone}</Text>
       )}
+      {feeText && (
+        <Text size="small" appearance="info">{feeText}</Text>
+      )}
+      {!feeText && (
+        <Text size="small" appearance="success">Free pickup</Text>
+      )}
       {location.collectionInstructions && (
-        <Text size="small" appearance="info">{location.collectionInstructions}</Text>
+        <Text size="small" appearance="subdued">{location.collectionInstructions}</Text>
       )}
     </BlockStack>
   );
@@ -82,7 +112,7 @@ function ClickCollectExtension() {
 
   const heading = (settings.heading as string) || "Click & Collect";
   const description = (settings.description as string) || "Skip the wait and collect your order from one of our pickup locations.";
-  const checkboxLabel = (settings.checkbox_label as string) || "I will collect my order in-store (free pickup)";
+  const checkboxLabel = (settings.checkbox_label as string) || "I will collect my order in-store";
 
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
@@ -188,8 +218,7 @@ function ClickCollectExtension() {
               )}
 
               <Banner status="info">
-                You will receive an email when your order is ready to collect. Please bring your order
-                number or confirmation email.
+                We will email you as your order progresses. Please bring your order number or confirmation email when collecting.
               </Banner>
             </BlockStack>
           )}

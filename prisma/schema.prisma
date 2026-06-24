@@ -27,7 +27,6 @@ model Session {
   refreshTokenExpires   DateTime?
 }
 
-// One row per installed shop
 model ShopConfig {
   id          String   @id @default(cuid())
   shop        String   @unique
@@ -59,9 +58,13 @@ model ShopConfig {
   onboardingCompleted Boolean @default(false)
 
   // Notification settings
-  notifyReadySubject     String @default("Your order is ready for collection! 🛍️")
+  notifyReadySubject     String @default("Your order is ready for collection")
   notifyPickedUpSubject  String @default("Thanks for collecting your order!")
-  notifyMerchantEmail    String @default("")  // CC merchant on ready notification
+  notifyMerchantEmail    String @default("")
+
+  // Order progress steps - merchant can toggle which steps they use
+  useProcessingStep Boolean @default(true)
+  usePackingStep    Boolean @default(true)
 
   // Subscription
   trialStartedAt          DateTime?
@@ -75,25 +78,25 @@ model ShopConfig {
   orders    ClickCollectOrder[]
 }
 
-// Physical locations where customers can collect their orders
 model PickupLocation {
   id        String  @id @default(cuid())
   shop      String
-  name      String  // "Auckland CBD Store"
+  name      String
   address   String  @default("")
   city      String  @default("")
   postcode  String  @default("")
   phone     String  @default("")
   email     String  @default("")
 
-  // Store hours as JSON: { "mon": { "open": "09:00", "close": "17:00", "closed": false }, ... }
   hours Json @default("{}")
-
-  // How many minutes after order is placed before it can be ready (e.g. 60 = 1 hour)
   prepTimeMinutes Int @default(60)
-
-  // Instructions shown to customer on confirmation page / email
   collectionInstructions String @default("")
+
+  // Service fee config (like Noel Leeming / Woolworths NZ)
+  serviceFeeType      String @default("free")  // free | fixed | percentage
+  serviceFeeAmount    Float  @default(0)        // dollar amount or percentage
+  serviceFeeFreeAbove Float  @default(0)        // free when order is above this amount (0 = always charge)
+  serviceFeeLabel     String @default("")       // custom label e.g. "Packing fee"
 
   isActive  Boolean @default(true)
   sortOrder Int     @default(0)
@@ -108,41 +111,44 @@ model PickupLocation {
   @@index([shop, isActive])
 }
 
-// Click & Collect order — created when a paid order has pickup attributes
+// Status lifecycle:
+// confirmed   = order placed, awaiting merchant action
+// processing  = merchant started working on the order
+// packing     = order being packed for collection
+// ready       = packed and ready, customer notified
+// picked_up   = customer collected
+// cancelled   = order cancelled
 model ClickCollectOrder {
   id               String @id @default(cuid())
   shop             String
-  shopifyOrderId   String // numeric Shopify order ID
-  shopifyOrderName String @default("") // "#1042"
-  shopifyOrderGid  String @default("") // gid://shopify/Order/xxx
+  shopifyOrderId   String
+  shopifyOrderName String @default("")
+  shopifyOrderGid  String @default("")
 
   pickupLocationId String
 
-  // Customer snapshot
   customerName  String @default("")
   customerEmail String @default("")
   customerPhone String @default("")
 
-  // Order snapshot (line items as JSON)
   lineItemsJson Json   @default("[]")
   totalPrice    String @default("")
   currency      String @default("")
 
-  // Status lifecycle:
-  // pending   = order paid, waiting for merchant to prepare
-  // ready     = merchant marked as ready, notification sent to customer
-  // picked_up = customer collected, merchant confirmed
-  // cancelled = order cancelled
-  status String @default("pending")
+  // Service fee charged for this order
+  serviceFee String @default("0")
 
-  // Merchant can set an expected ready time
+  status String @default("confirmed")
+
   expectedReadyAt DateTime?
 
-  // Timestamps
-  readyAt    DateTime?
-  pickedUpAt DateTime?
+  // Progress timestamps
+  confirmedAt   DateTime?
+  processingAt  DateTime?
+  packingAt     DateTime?
+  readyAt       DateTime?
+  pickedUpAt    DateTime?
 
-  // Notification tracking
   readyNotificationSentAt    DateTime?
   pickedUpNotificationSentAt DateTime?
 
@@ -158,17 +164,17 @@ model ClickCollectOrder {
   @@index([shop, status])
   @@index([shop, pickupLocationId])
   @@index([shop, createdAt])
+  @@index([shopifyOrderGid])
 }
 
-// Email audit log
 model EmailLog {
   id             String   @id @default(cuid())
   shop           String
   orderId        String
-  type           String   // ready_to_collect | picked_up | custom
+  type           String
   recipientEmail String
   subject        String
-  status         String   @default("sent") // sent | failed
+  status         String   @default("sent")
   errorMessage   String   @default("")
   sentAt         DateTime @default(now())
 

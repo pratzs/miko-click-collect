@@ -41,16 +41,21 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     }),
   ]);
 
-  const pendingCount = await db.clickCollectOrder.count({ where: { shop, status: "pending" } });
+  const activeCount = await db.clickCollectOrder.count({
+    where: { shop, status: { in: ["confirmed", "pending", "processing", "packing"] } },
+  });
   const readyCount = await db.clickCollectOrder.count({ where: { shop, status: "ready" } });
   const pickedUpCount = await db.clickCollectOrder.count({ where: { shop, status: "picked_up" } });
-  const totalOrderCount = pendingCount + readyCount + pickedUpCount;
+  const totalOrderCount = activeCount + readyCount + pickedUpCount;
+  const pendingCount = activeCount;
 
   const planName = config?.planName ?? "free";
   const plan = getPlan(planName);
   const shopHandle = shop.replace(".myshopify.com", "");
 
-  const hasEmailConfig = Boolean(config?.replyToEmail || config?.smtpHost);
+  const hasEmailConfig = Boolean(
+    (config?.replyToEmail || config?.smtpHost) && (process.env.RESEND_API_KEY || config?.smtpHost)
+  );
 
   return json({
     planName,
@@ -73,8 +78,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   });
 };
 
-const STATUS_BADGE: Record<string, { tone: "attention" | "success" | "info" | "critical"; label: string }> = {
-  pending: { tone: "attention", label: "Pending" },
+const STATUS_BADGE: Record<string, { tone: "attention" | "success" | "info" | "critical" | "warning"; label: string }> = {
+  confirmed: { tone: "attention", label: "Confirmed" },
+  pending: { tone: "attention", label: "Confirmed" },
+  processing: { tone: "warning", label: "Processing" },
+  packing: { tone: "info", label: "Packing" },
   ready: { tone: "info", label: "Ready" },
   picked_up: { tone: "success", label: "Collected" },
   cancelled: { tone: "critical", label: "Cancelled" },
@@ -320,11 +328,11 @@ export default function DashboardPage() {
             <Card>
               <BlockStack gap="200">
                 <InlineStack align="space-between">
-                  <Text variant="headingSm" as="h3" tone="subdued">Pending pickup</Text>
+                  <Text variant="headingSm" as="h3" tone="subdued">Active orders</Text>
                   <Box><ClockIcon width={20} /></Box>
                 </InlineStack>
                 <Text variant="heading2xl" as="p">{pendingCount}</Text>
-                <Button variant="plain" onClick={() => navigate("/app/orders?status=pending")}>View pending</Button>
+                <Button variant="plain" onClick={() => navigate("/app/orders?status=active")}>View active</Button>
               </BlockStack>
             </Card>
 
