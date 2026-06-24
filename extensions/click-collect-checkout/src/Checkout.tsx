@@ -76,7 +76,7 @@ function LocationCard({ location }: { location: Location }) {
   );
 }
 
-export default reactExtension("purchase.checkout.delivery-address.render-before", () => (
+export default reactExtension("purchase.checkout.block.render", () => (
   <ClickCollectExtension />
 ));
 

@@ -8,7 +8,7 @@ type = "ui_extension"
 
 [[extensions.targeting]]
 module = "./src/Checkout.tsx"
-target = "purchase.checkout.delivery-address.render-before"
+target = "purchase.checkout.block.render"
 
 [extensions.capabilities]
 network_access = true
