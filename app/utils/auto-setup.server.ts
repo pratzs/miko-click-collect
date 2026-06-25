@@ -143,12 +143,20 @@ async function ensureServiceFeeProduct(
       input: {
         title: SERVICE_FEE_PRODUCT_TITLE,
         handle: SERVICE_FEE_PRODUCT_HANDLE,
-        productType: "Service",
-        vendor: "Click and Collect",
+        // Unique product type and vendor so other apps (discounts, wholesale,
+        // automatic promotions) can identify and skip this product
+        productType: "__miko_internal_fee__",
+        vendor: "Miko Click and Collect (internal)",
         status: "ACTIVE",
-        // Tags to keep it filtered out of any merchant collection automation
-        tags: ["miko-click-collect-hidden", "hidden-product"],
-        // Empty SEO so the product page returns no search-friendly metadata
+        // Tags signal "do not modify". Includes common no-discount conventions
+        // used by Shopify discount apps in the wild
+        tags: [
+          "__miko_internal__",
+          "miko-click-collect-fee",
+          "no-discount",
+          "no-automatic-discount",
+          "hidden-product",
+        ],
         seo: { title: "", description: "" },
         descriptionHtml: "",
       },
@@ -195,8 +203,12 @@ async function ensureServiceFeeProduct(
     },
   );
 
-  // Hide from search / theme via the seo.hidden metafield convention (themes that
-  // respect this exclude the product from search, sitemaps, and product feeds)
+  // Set metafields that signal "internal app product — do not touch":
+  //   - seo.hidden:    themes exclude from search/sitemap/feeds
+  //   - miko.internal: any Miko-family app (Wholesale Hub, Rentals, etc.)
+  //                    should check this and skip the product entirely
+  //   - miko.do_not_discount: explicit no-discount marker any 3rd-party
+  //                    discount app can be configured to respect
   await shopifyGraphql(
     shop,
     accessToken,
@@ -213,6 +225,34 @@ async function ensureServiceFeeProduct(
           key: "hidden",
           type: "single_line_text_field",
           value: "1",
+        },
+        {
+          ownerId: productId,
+          namespace: "miko",
+          key: "internal",
+          type: "boolean",
+          value: "true",
+        },
+        {
+          ownerId: productId,
+          namespace: "miko",
+          key: "owner_app",
+          type: "single_line_text_field",
+          value: "miko-click-collect",
+        },
+        {
+          ownerId: productId,
+          namespace: "miko",
+          key: "do_not_discount",
+          type: "boolean",
+          value: "true",
+        },
+        {
+          ownerId: productId,
+          namespace: "miko",
+          key: "do_not_modify",
+          type: "boolean",
+          value: "true",
         },
       ],
     },
