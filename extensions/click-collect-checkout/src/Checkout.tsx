@@ -40,8 +40,10 @@ type ApiResponse = {
 };
 
 const APP_URL = "https://miko-click-collect-production.up.railway.app";
+// Underscore-prefixed attributes are hidden from the customer in Shopify checkout
+// but still readable by apps + visible in the order detail page.
 const FEE_LINE_FLAG = "_miko_service_fee_line";
-const FEE_AMOUNT_ATTR = "miko_fee_amount";
+const FEE_AMOUNT_ATTR = "_miko_fee_amount";
 
 const TODAY_KEY = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"][new Date().getDay()];
 
@@ -207,38 +209,64 @@ function ClickCollectExtension() {
     async () => {},
   );
 
+  // Guard against overlapping sync calls (subtotal change + location change firing
+  // simultaneously). Serialise them so we never race two add/remove operations.
+  const syncInFlightRef = useRef<Promise<void> | null>(null);
+
   const syncCart = useCallback(
     async (enabled: boolean, locId: string, locName: string, loc?: Location) => {
-      if (enabled && loc) {
-        await applyAttributeChange({ type: "updateAttribute", key: "miko_pickup_method", value: "click_and_collect" });
-        await applyAttributeChange({ type: "updateAttribute", key: "miko_location_id", value: locId });
-        await applyAttributeChange({ type: "updateAttribute", key: "miko_location_name", value: locName });
+      // Wait for any previous sync to settle before starting a new one
+      if (syncInFlightRef.current) {
+        await syncInFlightRef.current.catch(() => null);
+      }
 
-        const fee = calculateFee(loc, subtotal);
-        await removeFeeLine();
+      const work = (async () => {
+        try {
+          if (enabled && loc) {
+            await applyAttributeChange({ type: "updateAttribute", key: "miko_pickup_method", value: "click_and_collect" });
+            await applyAttributeChange({ type: "updateAttribute", key: "miko_location_id", value: locId });
+            await applyAttributeChange({ type: "updateAttribute", key: "miko_location_name", value: locName });
 
-        if (fee > 0) {
-          // Use the per-location variant whose price IS the fee — no cart_transform needed.
-          // Falls back to the shared $0 base variant only if the per-location variant is missing.
-          const variantId = loc.shopifyFeeVariantId || serviceFeeVariantId;
-          if (variantId) {
-            await applyCartLinesChange({
-              type: "addCartLine",
-              merchandiseId: variantId,
-              quantity: 1,
-              attributes: [
-                { key: FEE_LINE_FLAG, value: "true" },
-                { key: FEE_AMOUNT_ATTR, value: fee.toFixed(2) },
-                { key: "Pickup location", value: locName },
-              ],
-            });
+            const fee = calculateFee(loc, subtotal);
+            await removeFeeLine();
+
+            if (fee > 0) {
+              // Use the per-location variant whose price IS the fee — no cart_transform needed.
+              // Falls back to the shared $0 base variant only if the per-location variant is missing.
+              const variantId = loc.shopifyFeeVariantId || serviceFeeVariantId;
+              if (variantId) {
+                await applyCartLinesChange({
+                  type: "addCartLine",
+                  merchandiseId: variantId,
+                  quantity: 1,
+                  attributes: [
+                    { key: FEE_LINE_FLAG, value: "true" },
+                    { key: FEE_AMOUNT_ATTR, value: fee.toFixed(2) },
+                    { key: "Pickup location", value: locName },
+                  ],
+                });
+              }
+            }
+          } else {
+            await applyAttributeChange({ type: "updateAttribute", key: "miko_pickup_method", value: "" });
+            await applyAttributeChange({ type: "updateAttribute", key: "miko_location_id", value: "" });
+            await applyAttributeChange({ type: "updateAttribute", key: "miko_location_name", value: "" });
+            await removeFeeLine();
           }
+        } catch (err) {
+          // Surface to console for debugging, but don't crash the extension —
+          // the customer can still complete checkout, just with possibly stale fee state
+          console.error("[miko-click-collect] syncCart error:", err);
         }
-      } else {
-        await applyAttributeChange({ type: "updateAttribute", key: "miko_pickup_method", value: "" });
-        await applyAttributeChange({ type: "updateAttribute", key: "miko_location_id", value: "" });
-        await applyAttributeChange({ type: "updateAttribute", key: "miko_location_name", value: "" });
-        await removeFeeLine();
+      })();
+
+      syncInFlightRef.current = work;
+      try {
+        await work;
+      } finally {
+        if (syncInFlightRef.current === work) {
+          syncInFlightRef.current = null;
+        }
       }
     },
     [applyAttributeChange, applyCartLinesChange, removeFeeLine, serviceFeeVariantId, subtotal],
@@ -257,8 +285,12 @@ function ClickCollectExtension() {
     const loc = locations.find((l) => l.id === selectedLocationId);
     if (!loc) return;
     if (lastSyncedSubtotalRef.current === subtotal) return;
-    lastSyncedSubtotalRef.current = subtotal;
-    syncCart(true, selectedLocationId, loc.name, loc);
+    const targetSubtotal = subtotal;
+    syncCart(true, selectedLocationId, loc.name, loc).then(() => {
+      // Only commit the synced subtotal after the sync resolves successfully —
+      // a failed sync gets retried on the next subtotal recompute
+      lastSyncedSubtotalRef.current = targetSubtotal;
+    });
   }, [subtotal, isClickCollect, selectedLocationId, locations, syncCart]);
 
   const handleToggle = useCallback(

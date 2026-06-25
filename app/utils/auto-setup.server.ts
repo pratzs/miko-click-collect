@@ -265,16 +265,17 @@ async function ensureServiceFeeProduct(
 
 /* ===== Per-location fee variant on the service fee product =====
  *
- * Why this exists: Shopify only allows ONE cart_transform function per shop,
- * and many merchants already have one installed (e.g. Discount Ninja). So we
- * can't rely on a cart_transform to set our line item's price.
+ * Why this exists: cart_transform Functions are exclusive (one per shop) and
+ * have edge cases on selling-plan and subscription lines where prices are
+ * protected. Both make cart_transform unreliable for charging pickup fees.
  *
  * Instead, we create a dedicated variant on the service fee product for each
  * location that charges a fee. The variant's price IS the fee amount. When
  * the merchant changes a fee, we update the variant's price.
  *
  * The checkout extension adds the location-specific variant ID, so the price
- * is correct natively — no cart_transform conflict possible.
+ * is correct natively — no function involved, no conflict surface, no edge
+ * cases on selling-plan items.
  */
 
 async function syncLocationFeeVariant(
@@ -301,15 +302,13 @@ async function syncLocationFeeVariant(
   }
 
   const desiredPrice = location.serviceFeeAmount.toFixed(2);
-  const variantTitle = `${location.name} — Fee`;
-
-  // If we already have a variant ID, check whether price still matches
-  if (location.shopifyFeeVariantId && location.shopifyFeeVariantPrice === desiredPrice) {
-    return { variantId: location.shopifyFeeVariantId, price: desiredPrice };
-  }
+  // Variant title shows in the cart line as the "variant" under "Click and
+  // Collect Service Fee". Use just the location name — clean, contextual.
+  const variantTitle = location.name;
 
   if (location.shopifyFeeVariantId) {
-    // Update existing variant price
+    // Update existing variant — set price AND ensure the variant's option value
+    // is the current location name (handles location renames)
     const update = await shopifyGraphql<{
       productVariantsBulkUpdate: { userErrors: Array<{ message: string }> };
     }>(
@@ -322,7 +321,13 @@ async function syncLocationFeeVariant(
       }`,
       {
         productId,
-        variants: [{ id: location.shopifyFeeVariantId, price: desiredPrice }],
+        variants: [
+          {
+            id: location.shopifyFeeVariantId,
+            price: desiredPrice,
+            optionValues: [{ optionName: "Title", name: variantTitle }],
+          },
+        ],
       },
     );
     const errs = update.data?.productVariantsBulkUpdate?.userErrors ?? [];
