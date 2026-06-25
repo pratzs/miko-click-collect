@@ -1,111 +1,295 @@
 {% comment %}
-  Miko Click & Collect,Pickup Selector
-  Add this block to the cart page. Customers toggle pickup,
-  select a location, and the choice is saved as cart attributes
-  that flow through to the order.
+  Miko Click & Collect — Cart Page Pickup Selector
+
+  Optional block. The checkout extension already provides the full pickup flow
+  on its own; this block lets customers see and choose pickup earlier, on the
+  cart page. Both flows write the same cart attributes:
+
+    - miko_pickup_method = "click_and_collect"
+    - miko_location_id   = "<pickup location id>"
+    - miko_location_name = "<pickup location name>"
+
+  Those attributes are read by the delivery customization function at checkout
+  to display the correct per-location shipping rate.
 {% endcomment %}
 
-{{ 'click-collect.css' | asset_url | stylesheet_tag }}
-
-<div id="miko-cc" class="miko-cc" data-app-url="https://miko-click-collect-production.up.railway.app">
+<div
+  id="miko-cc"
+  class="miko-cc"
+  data-app-url="https://miko-click-collect-production.up.railway.app"
+  data-shop="{{ shop.permanent_domain }}"
+  data-heading="{{ block.settings.heading | escape }}"
+  data-description="{{ block.settings.description | escape }}"
+  data-checkbox-label="{{ block.settings.checkbox_label | escape }}"
+>
   {%- if request.page_type != 'cart' -%}
     <div class="miko-cc__setup-notice">
       <strong>Miko Click &amp; Collect</strong>
       <span>
-        This block works on the <strong>cart page</strong>.<br>
-        Move it to your Cart template in the theme editor.
+        This block belongs on the <strong>Cart</strong> page.<br>
+        Switch the theme editor dropdown to "Cart" and add it inside the cart section.
       </span>
     </div>
   {%- else -%}
-    <div id="miko-cc-loading" class="miko-cc__loading">
-      Loading pickup locations…
+    <div id="miko-cc-loading" class="miko-cc__loading" aria-live="polite">
+      Loading pickup options…
     </div>
 
     <div id="miko-cc-widget" class="miko-cc__hidden">
-      <!-- Toggle -->
-      <div id="miko-cc-toggle" class="miko-cc__toggle" role="button" tabindex="0" aria-pressed="false">
-        <div class="miko-cc__toggle-icon"><svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor"><path d="M4 3a1 1 0 0 0-1 1v1a3 3 0 0 0 1.46 2.57A1 1 0 0 0 4 8v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8a1 1 0 0 0-.46-.43A3 3 0 0 0 17 5V4a1 1 0 0 0-1-1H4z"/></svg></div>
-        <div class="miko-cc__toggle-text">
-          <p class="miko-cc__toggle-title">Collect in-store (free)</p>
-          <p class="miko-cc__toggle-sub">Skip shipping and pick up your order from one of our locations.</p>
-        </div>
-        <div class="miko-cc__toggle-check">
-          <svg width="14" height="14" viewBox="0 0 20 20" fill="white" style="display:none" id="miko-cc-checkmark">
-            <path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"/>
-          </svg>
-        </div>
+      <div class="miko-cc__header">
+        <h3 class="miko-cc__title">{{ block.settings.heading | default: "Click & Collect" }}</h3>
+        <p class="miko-cc__sub">{{ block.settings.description | default: "Skip the wait and collect from one of our stores." }}</p>
       </div>
 
-      <!-- Expanded panel -->
+      <label class="miko-cc__toggle" id="miko-cc-toggle-label">
+        <input type="checkbox" id="miko-cc-toggle" class="miko-cc__toggle-input">
+        <span class="miko-cc__toggle-checkbox" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="14" height="14">
+            <path d="M3 8.5 6.5 12 13 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <span class="miko-cc__toggle-label">{{ block.settings.checkbox_label | default: "I will collect my order in-store" }}</span>
+      </label>
+
       <div id="miko-cc-panel" class="miko-cc__panel miko-cc__hidden">
-        <select id="miko-cc-select" class="miko-cc__select" aria-label="Select pickup location"></select>
+        <label class="miko-cc__field" id="miko-cc-select-wrap">
+          <span class="miko-cc__field-label">Select pickup location</span>
+          <select id="miko-cc-select" class="miko-cc__select" aria-label="Select pickup location"></select>
+        </label>
+
         <div id="miko-cc-card" class="miko-cc__location-card"></div>
-        <div class="miko-cc__info">
-          You'll receive an email when your order is ready to collect. Bring your order number or confirmation email.
+
+        <div class="miko-cc__info" role="note">
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+            <circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M8 4.5v4M8 11v.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          <span>We'll email you when your order is ready. Bring your order number when you collect.</span>
         </div>
       </div>
     </div>
-
-    <div id="miko-cc-empty" class="miko-cc__hidden"></div>
   {%- endif -%}
 </div>
+
+<style>
+.miko-cc {
+  --mcc-border: rgba(0, 0, 0, 0.12);
+  --mcc-border-strong: rgba(0, 0, 0, 0.24);
+  --mcc-accent: #0070f3;
+  --mcc-text: #1a1a1a;
+  --mcc-text-sub: #6b7280;
+  --mcc-bg-subtle: #f7f8fa;
+  --mcc-bg-active: #eaf3ff;
+  font-family: inherit;
+  color: var(--mcc-text);
+  margin: 16px 0;
+}
+.miko-cc__hidden { display: none !important; }
+.miko-cc__loading {
+  padding: 16px;
+  border: 1px dashed var(--mcc-border);
+  border-radius: 10px;
+  color: var(--mcc-text-sub);
+  font-size: 14px;
+  text-align: center;
+}
+.miko-cc__setup-notice {
+  padding: 12px 16px;
+  border: 1px solid #fcd34d;
+  background: #fffbeb;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #78350f;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.miko-cc__widget { display: flex; flex-direction: column; gap: 12px; }
+.miko-cc__header { margin-bottom: 4px; }
+.miko-cc__title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 4px 0;
+  color: var(--mcc-text);
+}
+.miko-cc__sub {
+  font-size: 13px;
+  color: var(--mcc-text-sub);
+  margin: 0;
+  line-height: 1.4;
+}
+.miko-cc__toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--mcc-border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+  margin-top: 12px;
+}
+.miko-cc__toggle:hover { border-color: var(--mcc-border-strong); }
+.miko-cc__toggle-input { position: absolute; opacity: 0; pointer-events: none; }
+.miko-cc__toggle-checkbox {
+  width: 20px;
+  height: 20px;
+  border: 1.5px solid var(--mcc-border-strong);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  transition: background-color 120ms ease, border-color 120ms ease;
+  flex-shrink: 0;
+}
+.miko-cc__toggle-checkbox svg { opacity: 0; transition: opacity 120ms ease; }
+.miko-cc__toggle-input:checked ~ .miko-cc__toggle-checkbox {
+  background: var(--mcc-accent);
+  border-color: var(--mcc-accent);
+}
+.miko-cc__toggle-input:checked ~ .miko-cc__toggle-checkbox svg { opacity: 1; }
+.miko-cc__toggle:has(.miko-cc__toggle-input:checked) {
+  border-color: var(--mcc-accent);
+  background: var(--mcc-bg-active);
+}
+.miko-cc__toggle-label {
+  font-size: 14px;
+  font-weight: 500;
+  user-select: none;
+}
+.miko-cc__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--mcc-border);
+  border-radius: 10px;
+  background: var(--mcc-bg-subtle);
+}
+.miko-cc__field { display: flex; flex-direction: column; gap: 6px; }
+.miko-cc__field-label { font-size: 12px; font-weight: 600; color: var(--mcc-text-sub); text-transform: uppercase; letter-spacing: 0.04em; }
+.miko-cc__select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--mcc-border-strong);
+  border-radius: 8px;
+  background: white;
+  font-size: 14px;
+  color: var(--mcc-text);
+}
+.miko-cc__location-card {
+  padding: 12px 14px;
+  background: white;
+  border: 1px solid var(--mcc-border);
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.miko-cc__location-name { font-size: 14px; font-weight: 600; margin: 0; }
+.miko-cc__location-detail { color: var(--mcc-text-sub); margin: 0; }
+.miko-cc__location-fee { color: var(--mcc-accent); font-weight: 500; margin: 4px 0 0 0; }
+.miko-cc__location-free { color: #047857; font-weight: 500; margin: 4px 0 0 0; }
+.miko-cc__location-instructions {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--mcc-border);
+  color: var(--mcc-text-sub);
+  font-size: 12px;
+}
+.miko-cc__info {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #eff6ff;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #1e40af;
+  line-height: 1.4;
+}
+.miko-cc__info svg { flex-shrink: 0; margin-top: 1px; }
+</style>
 
 <script>
 (function() {
   var container = document.getElementById('miko-cc');
   if (!container) return;
   var appUrl = container.getAttribute('data-app-url');
-  if (!appUrl) return;
+  var shop = container.getAttribute('data-shop') || (window.Shopify && Shopify.shop) || '';
+  if (!appUrl || !shop) return;
 
-  var shop = window.Shopify && Shopify.shop ? Shopify.shop : '';
-  if (!shop) return;
+  // Fire a beacon so the merchant's app dashboard knows this block is installed
+  try {
+    var img = new Image();
+    img.src = appUrl + '/api/public/beacon?shop=' + encodeURIComponent(shop) + '&source=cart-block';
+  } catch (e) { /* noop */ }
 
   var locations = [];
   var selectedIdx = 0;
-  var isActive = false;
 
   var loadingEl = document.getElementById('miko-cc-loading');
   var widgetEl = document.getElementById('miko-cc-widget');
-  var emptyEl = document.getElementById('miko-cc-empty');
-  var toggleEl = document.getElementById('miko-cc-toggle');
+  var toggleInput = document.getElementById('miko-cc-toggle');
   var panelEl = document.getElementById('miko-cc-panel');
   var selectEl = document.getElementById('miko-cc-select');
+  var selectWrap = document.getElementById('miko-cc-select-wrap');
   var cardEl = document.getElementById('miko-cc-card');
-  var checkmark = document.getElementById('miko-cc-checkmark');
 
-  function show(el) { el && el.classList.remove('miko-cc__hidden'); }
-  function hide(el) { el && el.classList.add('miko-cc__hidden'); }
+  function show(el) { if (el) el.classList.remove('miko-cc__hidden'); }
+  function hide(el) { if (el) el.classList.add('miko-cc__hidden'); }
+
+  function escHtml(s) {
+    var d = document.createElement('div');
+    d.textContent = s == null ? '' : String(s);
+    return d.innerHTML;
+  }
+
+  function formatPrepTime(minutes) {
+    if (minutes < 60) return minutes + ' min';
+    if (minutes === 60) return '1 hour';
+    if (minutes < 1440) return Math.round(minutes / 60) + ' hours';
+    return 'Next day';
+  }
+
+  function feeText(loc) {
+    if (!loc) return '';
+    if (loc.serviceFeeType === 'free' || !loc.serviceFeeAmount) return null;
+    var label = loc.serviceFeeLabel || 'Pickup fee';
+    if (loc.serviceFeeType === 'percentage') {
+      return label + ': ' + loc.serviceFeeAmount + '% of order';
+    }
+    return label + ': $' + Number(loc.serviceFeeAmount).toFixed(2);
+  }
 
   function renderCard() {
     var loc = locations[selectedIdx];
     if (!loc || !cardEl) return;
 
-    var days = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' };
-    var todayKey = ['sun','mon','tue','wed','thu','fri','sat'][new Date().getDay()];
+    var days = ['sun','mon','tue','wed','thu','fri','sat'];
+    var todayKey = days[new Date().getDay()];
     var h = loc.hours && loc.hours[todayKey];
-    var hoursText = h ? (h.closed ? 'Closed today' : 'Today: ' + h.open + ' -' + h.close) : '';
-
-    var prepText = loc.prepTimeMinutes < 60 ? loc.prepTimeMinutes + ' min'
-      : loc.prepTimeMinutes === 60 ? '1 hour'
-      : loc.prepTimeMinutes < 1440 ? Math.round(loc.prepTimeMinutes / 60) + ' hours'
-      : 'Next day';
+    var hoursText = h ? (h.closed ? 'Closed today' : 'Today: ' + h.open + ' - ' + h.close) : '';
 
     var html = '<p class="miko-cc__location-name">' + escHtml(loc.name) + '</p>';
     var addr = [loc.address, loc.city, loc.postcode].filter(Boolean).join(', ');
     if (addr) html += '<p class="miko-cc__location-detail">' + escHtml(addr) + '</p>';
     if (hoursText) html += '<p class="miko-cc__location-detail">' + escHtml(hoursText) + '</p>';
-    html += '<p class="miko-cc__location-detail">Ready in' + escHtml(prepText) + '</p>';
-    if (loc.phone) html += '<p class="miko-cc__location-detail">' + escHtml(loc.phone) + '</p>';
+    html += '<p class="miko-cc__location-detail">Ready in ' + escHtml(formatPrepTime(loc.prepTimeMinutes || 60)) + '</p>';
+    if (loc.phone) html += '<p class="miko-cc__location-detail">Phone: ' + escHtml(loc.phone) + '</p>';
+
+    var fee = feeText(loc);
+    if (fee) html += '<p class="miko-cc__location-fee">' + escHtml(fee) + ' (added to shipping)</p>';
+    else html += '<p class="miko-cc__location-free">Free pickup</p>';
+
     if (loc.collectionInstructions) {
       html += '<div class="miko-cc__location-instructions">' + escHtml(loc.collectionInstructions) + '</div>';
     }
     cardEl.innerHTML = html;
-  }
-
-  function escHtml(s) {
-    var d = document.createElement('div');
-    d.textContent = s;
-    return d.innerHTML;
   }
 
   function updateCartAttributes(attrs) {
@@ -117,13 +301,9 @@
   }
 
   function activate() {
-    isActive = true;
-    toggleEl.classList.add('miko-cc__toggle--active');
-    toggleEl.setAttribute('aria-pressed', 'true');
-    checkmark.style.display = 'block';
     show(panelEl);
-
     var loc = locations[selectedIdx];
+    if (!loc) return;
     updateCartAttributes({
       miko_pickup_method: 'click_and_collect',
       miko_location_id: loc.id,
@@ -132,12 +312,7 @@
   }
 
   function deactivate() {
-    isActive = false;
-    toggleEl.classList.remove('miko-cc__toggle--active');
-    toggleEl.setAttribute('aria-pressed', 'false');
-    checkmark.style.display = 'none';
     hide(panelEl);
-
     updateCartAttributes({
       miko_pickup_method: '',
       miko_location_id: '',
@@ -145,15 +320,9 @@
     });
   }
 
-  if (toggleEl) {
-    toggleEl.addEventListener('click', function() {
-      if (isActive) deactivate(); else activate();
-    });
-    toggleEl.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        if (isActive) deactivate(); else activate();
-      }
+  if (toggleInput) {
+    toggleInput.addEventListener('change', function() {
+      if (toggleInput.checked) activate(); else deactivate();
     });
   }
 
@@ -161,13 +330,15 @@
     selectEl.addEventListener('change', function() {
       selectedIdx = parseInt(selectEl.value, 10) || 0;
       renderCard();
-      if (isActive) {
+      if (toggleInput && toggleInput.checked) {
         var loc = locations[selectedIdx];
-        updateCartAttributes({
-          miko_pickup_method: 'click_and_collect',
-          miko_location_id: loc.id,
-          miko_location_name: loc.name
-        });
+        if (loc) {
+          updateCartAttributes({
+            miko_pickup_method: 'click_and_collect',
+            miko_location_id: loc.id,
+            miko_location_name: loc.name
+          });
+        }
       }
     });
   }
@@ -175,29 +346,25 @@
   fetch(appUrl + '/api/public/locations?shop=' + encodeURIComponent(shop))
     .then(function(r) { return r.json(); })
     .then(function(data) {
-      locations = data.locations || [];
+      locations = (data && data.locations) || [];
       hide(loadingEl);
-
       if (locations.length === 0) return;
-
       show(widgetEl);
 
       if (selectEl && locations.length > 1) {
         locations.forEach(function(loc, i) {
           var opt = document.createElement('option');
           opt.value = i;
-          opt.textContent = loc.name + (loc.city ? ',' + loc.city : '');
+          opt.textContent = loc.name + (loc.city ? ', ' + loc.city : '');
           selectEl.appendChild(opt);
         });
-      } else if (selectEl) {
-        hide(selectEl);
+      } else {
+        hide(selectWrap);
       }
 
       renderCard();
     })
-    .catch(function() {
-      hide(loadingEl);
-    });
+    .catch(function() { hide(loadingEl); });
 })();
 </script>
 
@@ -205,6 +372,25 @@
 {
   "name": "Click & Collect",
   "target": "section",
-  "settings": []
+  "settings": [
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Heading",
+      "default": "Click & Collect"
+    },
+    {
+      "type": "text",
+      "id": "description",
+      "label": "Description",
+      "default": "Skip the wait and collect from one of our stores."
+    },
+    {
+      "type": "text",
+      "id": "checkbox_label",
+      "label": "Checkbox label",
+      "default": "I will collect my order in-store"
+    }
+  ]
 }
 {% endschema %}

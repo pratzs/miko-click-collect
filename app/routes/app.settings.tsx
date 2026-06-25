@@ -63,6 +63,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       ratedLocationCount: await db.pickupLocation.count({
         where: { shop, isActive: true, NOT: { shopifyRateId: "" } },
       }),
+      // Theme block beacon — true if hit in the last 30 days
+      cartBlockInstalled:
+        !!config?.cartBlockLastSeenAt &&
+        Date.now() - new Date(config.cartBlockLastSeenAt).getTime() < 30 * 24 * 60 * 60 * 1000,
     },
   });
 };
@@ -316,6 +320,14 @@ export default function SettingsPage() {
                   }
                 />
                 <SetupRow ok={!!setup.deliveryCustomizationId} label="Shipping waiver active (hides paid rates on pickup orders)" />
+                <SetupRow
+                  ok={setup.cartBlockInstalled}
+                  label={
+                    setup.cartBlockInstalled
+                      ? "Cart-page pickup block installed (optional)"
+                      : "Cart-page pickup block not installed (optional — checkout still works)"
+                  }
+                />
               </BlockStack>
 
               {setup.error && !setup.completed && (

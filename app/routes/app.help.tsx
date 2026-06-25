@@ -77,10 +77,10 @@ export default function HelpPage() {
             <BlockStack gap="400">
               <InlineStack gap="200">
                 <Text as="h2" variant="headingMd">Setting up the checkout extension</Text>
-                <Badge tone="info">Shopify Plus</Badge>
+                <Badge tone="success">All plans</Badge>
               </InlineStack>
               <Text as="p" tone="subdued">
-                Shopify Plus stores can add the Click and Collect block directly in the checkout editor.
+                Works on every Shopify plan (Basic, Shopify, Advanced, Plus) with the new Shopify Checkout. Add the Click and Collect block directly in the checkout editor — this is the primary way customers will see the pickup option.
               </Text>
               <List type="number">
                 <List.Item>
@@ -126,16 +126,16 @@ export default function HelpPage() {
           </Card>
         </Layout.Section>
 
-        {/* Theme extension - All plans */}
+        {/* Theme extension - Optional */}
         <Layout.Section>
           <Card>
             <BlockStack gap="400">
               <InlineStack gap="200">
                 <Text as="h2" variant="headingMd">Cart page pickup selector</Text>
-                <Badge>All plans</Badge>
+                <Badge tone="attention">Optional</Badge>
               </InlineStack>
               <Text as="p" tone="subdued">
-                For stores on any Shopify plan, you can add a click and collect selector to the cart page using the theme extension.
+                Lets customers choose pickup BEFORE they hit checkout — useful if you want to surface the option earlier in the funnel. The checkout extension above already covers the pickup flow on its own; this is purely an upgrade for the cart-page experience.
               </Text>
               <List type="number">
                 <List.Item>
@@ -155,7 +155,7 @@ export default function HelpPage() {
                 </List.Item>
               </List>
               <Banner tone="info">
-                The cart page extension saves the customer&apos;s pickup choice as a cart attribute. This works on all Shopify plans.
+                The cart page block is optional — the checkout extension already provides the pickup flow on its own. Use this only if you want customers to see the pickup option on the cart page too.
               </Banner>
             </BlockStack>
           </Card>
@@ -330,7 +330,7 @@ export default function HelpPage() {
               <BlockStack gap="200">
                 <Text as="p" fontWeight="semibold">Does this work on non-Plus Shopify plans?</Text>
                 <Text as="p" tone="subdued">
-                  Yes. The checkout extension requires Shopify Plus. For other plans, use the cart page theme extension - it saves pickup attributes to the cart which flow through to the order.
+                  Yes — every part of this app works on Basic, Shopify, Advanced, and Plus. Shopify opened checkout extensibility, delivery customisation functions, and theme app extensions to all plans when they migrated to the new Shopify Checkout. The only requirement is that your store is on the new Shopify Checkout (default for new stores).
                 </Text>
               </BlockStack>
 

@@ -76,6 +76,7 @@ model ShopConfig {
   pickupShippingRateId   String @default("")  // gid://shopify/DeliveryRateDefinition/...
   setupCompletedAt       DateTime?
   setupError             String @default("")
+  cartBlockLastSeenAt    DateTime?
 
   // Subscription
   trialStartedAt          DateTime?
