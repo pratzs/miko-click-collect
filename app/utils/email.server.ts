@@ -140,6 +140,12 @@ function itemsTableHtml(order: OrderWithLocation): string {
     const raw = order.lineItemsJson;
     items = Array.isArray(raw) ? raw : JSON.parse(String(raw));
   } catch {}
+  // Defensive: hide any internal service fee line item from customer emails
+  // (older orders saved before the webhook filter was added may still have it)
+  items = items.filter((i) => {
+    const title = (i?.title ?? "").toLowerCase();
+    return !title.includes("click and collect service fee");
+  });
   if (!items.length) return "";
 
   const currency = order.currency || "USD";

@@ -17,7 +17,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     name: string;
     admin_graphql_api_id: string;
     note_attributes: Array<{ name: string; value: string }>;
-    line_items: Array<{ title: string; quantity: number; price: string; variant_title?: string }>;
+    line_items: Array<{
+      title: string;
+      quantity: number;
+      price: string;
+      variant_title?: string;
+      properties?: Array<{ name: string; value: string }>;
+    }>;
     total_price: string;
     currency: string;
     customer?: {
@@ -46,11 +52,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const customerEmail = order.customer?.email ?? order.email ?? "";
   const customerPhone = order.customer?.phone ?? order.billing_address?.phone ?? order.phone ?? "";
 
-  const lineItems = (order.line_items ?? []).map((li) => ({
-    title: li.variant_title ? `${li.title} -${li.variant_title}` : li.title,
-    quantity: li.quantity,
-    price: li.price,
-  }));
+  // Exclude internal service fee line — customer/merchant only sees real items
+  const lineItems = (order.line_items ?? [])
+    .filter(
+      (li) =>
+        !li.properties?.some(
+          (p) => p.name === "_miko_service_fee_line" && p.value === "true",
+        ),
+    )
+    .map((li) => ({
+      title: li.variant_title ? `${li.title} - ${li.variant_title}` : li.title,
+      quantity: li.quantity,
+      price: li.price,
+    }));
 
   await db.clickCollectOrder.upsert({
     where: {
