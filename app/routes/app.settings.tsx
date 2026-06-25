@@ -300,7 +300,7 @@ export default function SettingsPage() {
               <BlockStack gap="100">
                 <Text variant="headingMd" as="h2">Shipping waiver</Text>
                 <Text as="p" tone="subdued">
-                  When enabled, customers who select in-store pickup will not see any shipping rate options at checkout. This requires the Click and Collect delivery customisation function to be deployed.
+                  When enabled, any standard shipping rates are hidden at checkout when a customer selects in-store pickup. To use this feature you must first add a free "Click and Collect" shipping rate in your Shopify Admin under <strong>Settings → Shipping and delivery → Shipping rates → Add rate</strong> and name it something containing the word "Collect", "Pickup", or "Local" (e.g. "Click and Collect — Free"). That rate will remain visible; all paid shipping rates will be hidden.
                 </Text>
               </BlockStack>
               {dcStatus && (

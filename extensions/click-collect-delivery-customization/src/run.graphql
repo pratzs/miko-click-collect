@@ -6,6 +6,7 @@ query RunInput {
     deliveryGroups {
       deliveryOptions {
         handle
+        title
       }
     }
   }

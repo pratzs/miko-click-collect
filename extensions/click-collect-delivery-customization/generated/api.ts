@@ -39,6 +39,7 @@ export type DeliveryGroup = {
 export type DeliveryOption = {
   __typename?: 'DeliveryOption';
   handle: Scalars['String']['output'];
+  title: Scalars['String']['output'];
 };
 
 export type Query = {
@@ -49,4 +50,4 @@ export type Query = {
 export type RunInputQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type RunInputQuery = { __typename?: 'Query', cart: { __typename?: 'Cart', pickupMethod?: { __typename?: 'Attribute', value?: string | null } | null, deliveryGroups: Array<{ __typename?: 'DeliveryGroup', deliveryOptions: Array<{ __typename?: 'DeliveryOption', handle: string }> }> } };
+export type RunInputQuery = { __typename?: 'Query', cart: { __typename?: 'Cart', pickupMethod?: { __typename?: 'Attribute', value?: string | null } | null, deliveryGroups: Array<{ __typename?: 'DeliveryGroup', deliveryOptions: Array<{ __typename?: 'DeliveryOption', handle: string, title: string }> }> } };

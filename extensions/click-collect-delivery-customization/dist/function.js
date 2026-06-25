@@ -9,15 +9,19 @@ var src_exports = {};
 __export(src_exports, {
   default: () => run
 });
+var PICKUP_KEYWORDS = /pickup|collect|in.?store|local/i;
 function run(input) {
   const isPickup = input.cart.pickupMethod?.value === "click_and_collect";
-  if (!isPickup) {
+  if (!isPickup) return { operations: [] };
+  const allGroups = input.cart.deliveryGroups ?? [];
+  const hasPickupRate = allGroups.some(
+    (group) => group.deliveryOptions.some((opt) => PICKUP_KEYWORDS.test(opt.title ?? ""))
+  );
+  if (!hasPickupRate) {
     return { operations: [] };
   }
-  const operations = (input.cart.deliveryGroups ?? []).flatMap(
-    (group) => group.deliveryOptions.map((option) => ({
-      hide: { deliveryOptionHandle: option.handle }
-    }))
+  const operations = allGroups.flatMap(
+    (group) => group.deliveryOptions.filter((opt) => !PICKUP_KEYWORDS.test(opt.title ?? "")).map((opt) => ({ hide: { deliveryOptionHandle: opt.handle } }))
   );
   return { operations };
 }

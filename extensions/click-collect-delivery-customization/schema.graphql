@@ -21,4 +21,5 @@ type DeliveryGroup {
 
 type DeliveryOption {
   handle: String!
+  title: String!
 }
