@@ -31,6 +31,7 @@ type Location = {
   serviceFeeAmount: number;
   serviceFeeFreeAbove: number;
   serviceFeeLabel: string;
+  shopifyFeeVariantId: string;
 };
 
 type ApiResponse = {
@@ -195,17 +196,22 @@ function ClickCollectExtension() {
         const fee = calculateFee(loc, subtotal);
         await removeFeeLine();
 
-        if (fee > 0 && serviceFeeVariantId) {
-          await applyCartLinesChange({
-            type: "addCartLine",
-            merchandiseId: serviceFeeVariantId,
-            quantity: 1,
-            attributes: [
-              { key: FEE_LINE_FLAG, value: "true" },
-              { key: FEE_AMOUNT_ATTR, value: fee.toFixed(2) },
-              { key: "Pickup location", value: locName },
-            ],
-          });
+        if (fee > 0) {
+          // Use the per-location variant whose price IS the fee — no cart_transform needed.
+          // Falls back to the shared $0 base variant only if the per-location variant is missing.
+          const variantId = loc.shopifyFeeVariantId || serviceFeeVariantId;
+          if (variantId) {
+            await applyCartLinesChange({
+              type: "addCartLine",
+              merchandiseId: variantId,
+              quantity: 1,
+              attributes: [
+                { key: FEE_LINE_FLAG, value: "true" },
+                { key: FEE_AMOUNT_ATTR, value: fee.toFixed(2) },
+                { key: "Pickup location", value: locName },
+              ],
+            });
+          }
         }
       } else {
         await applyAttributeChange({ type: "updateAttribute", key: "miko_pickup_method", value: "" });

@@ -46,6 +46,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       serviceFeeAmount: true,
       serviceFeeFreeAbove: true,
       serviceFeeLabel: true,
+      shopifyFeeVariantId: true,
     },
   });
 

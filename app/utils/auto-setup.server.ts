@@ -223,6 +223,114 @@ async function ensureServiceFeeProduct(
   return { productId, variantId };
 }
 
+/* ===== Per-location fee variant on the service fee product =====
+ *
+ * Why this exists: Shopify only allows ONE cart_transform function per shop,
+ * and many merchants already have one installed (e.g. Discount Ninja). So we
+ * can't rely on a cart_transform to set our line item's price.
+ *
+ * Instead, we create a dedicated variant on the service fee product for each
+ * location that charges a fee. The variant's price IS the fee amount. When
+ * the merchant changes a fee, we update the variant's price.
+ *
+ * The checkout extension adds the location-specific variant ID, so the price
+ * is correct natively — no cart_transform conflict possible.
+ */
+
+async function syncLocationFeeVariant(
+  shop: string,
+  accessToken: string,
+  productId: string,
+  baseVariantId: string,
+  location: {
+    id: string;
+    name: string;
+    serviceFeeType: string;
+    serviceFeeAmount: number;
+    shopifyFeeVariantId: string;
+    shopifyFeeVariantPrice: string;
+  },
+): Promise<{ variantId: string; price: string }> {
+  // Free or zero-fee location → use the base $0 variant; no per-location variant needed
+  const isFreeLocation =
+    location.serviceFeeType === "free" || location.serviceFeeAmount <= 0;
+
+  if (isFreeLocation) {
+    // Optional cleanup: if a stale per-location variant exists, leave it (other locations may still use it)
+    return { variantId: baseVariantId, price: "0.00" };
+  }
+
+  const desiredPrice = location.serviceFeeAmount.toFixed(2);
+  const variantTitle = `${location.name} — Fee`;
+
+  // If we already have a variant ID, check whether price still matches
+  if (location.shopifyFeeVariantId && location.shopifyFeeVariantPrice === desiredPrice) {
+    return { variantId: location.shopifyFeeVariantId, price: desiredPrice };
+  }
+
+  if (location.shopifyFeeVariantId) {
+    // Update existing variant price
+    const update = await shopifyGraphql<{
+      productVariantsBulkUpdate: { userErrors: Array<{ message: string }> };
+    }>(
+      shop,
+      accessToken,
+      `mutation($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+        productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+          userErrors { message }
+        }
+      }`,
+      {
+        productId,
+        variants: [{ id: location.shopifyFeeVariantId, price: desiredPrice }],
+      },
+    );
+    const errs = update.data?.productVariantsBulkUpdate?.userErrors ?? [];
+    if (errs.length > 0) {
+      throw new Error(`Could not update fee variant for ${location.name}: ${errs.map((e) => e.message).join("; ")}`);
+    }
+    return { variantId: location.shopifyFeeVariantId, price: desiredPrice };
+  }
+
+  // Create a new variant for this location
+  const create = await shopifyGraphql<{
+    productVariantsBulkCreate: {
+      productVariants: Array<{ id: string }> | null;
+      userErrors: Array<{ message: string }>;
+    };
+  }>(
+    shop,
+    accessToken,
+    `mutation($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+      productVariantsBulkCreate(productId: $productId, variants: $variants) {
+        productVariants { id }
+        userErrors { message }
+      }
+    }`,
+    {
+      productId,
+      variants: [
+        {
+          price: desiredPrice,
+          optionValues: [{ optionName: "Title", name: variantTitle }],
+          taxable: false,
+          inventoryItem: { tracked: false, requiresShipping: false },
+        },
+      ],
+    },
+  );
+
+  const errs = create.data?.productVariantsBulkCreate?.userErrors ?? [];
+  if (errs.length > 0) {
+    throw new Error(`Could not create fee variant for ${location.name}: ${errs.map((e) => e.message).join("; ")}`);
+  }
+  const newVariantId = create.data?.productVariantsBulkCreate?.productVariants?.[0]?.id ?? "";
+  if (!newVariantId) {
+    throw new Error(`Fee variant create for ${location.name} returned no ID`);
+  }
+  return { variantId: newVariantId, price: desiredPrice };
+}
+
 /* ===== Per-location shipping rates ===== */
 
 type DeliveryProfileShape = {
@@ -490,15 +598,40 @@ export async function syncLocationRate(shop: string, locationId: string): Promis
   const accessToken = config.accessToken;
 
   if (!location) {
-    // Location deleted — drop the rate too (look it up by name in case the ID is lost)
     return;
   }
 
   const profile = await fetchPrimaryDeliveryProfile(shop, accessToken);
   const currencyCode = await fetchShopCurrency(shop, accessToken);
+
+  // Sync the shipping rate (always $0; just the name matters)
   const rateId = await ensureLocationRate(shop, accessToken, profile, currencyCode, location);
   if (rateId && rateId !== location.shopifyRateId) {
     await db.pickupLocation.update({ where: { id: locationId }, data: { shopifyRateId: rateId } });
+  }
+
+  // Sync the per-location fee variant on the service fee product
+  if (config.serviceFeeProductId && config.serviceFeeVariantId) {
+    try {
+      const { variantId, price } = await syncLocationFeeVariant(
+        shop,
+        accessToken,
+        config.serviceFeeProductId,
+        config.serviceFeeVariantId,
+        location,
+      );
+      if (
+        variantId !== location.shopifyFeeVariantId ||
+        price !== location.shopifyFeeVariantPrice
+      ) {
+        await db.pickupLocation.update({
+          where: { id: locationId },
+          data: { shopifyFeeVariantId: variantId, shopifyFeeVariantPrice: price },
+        });
+      }
+    } catch (err) {
+      console.error("[syncLocationFeeVariant]", err);
+    }
   }
 }
 
@@ -653,10 +786,11 @@ export async function runAutoSetup(shop: string, accessToken: string): Promise<S
     result.steps.serviceFeeProduct = { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 
-  // Step 1: per-location shipping rates
+  // Step 1: per-location shipping rates + fee variants
   try {
     const profile = await fetchPrimaryDeliveryProfile(shop, accessToken);
     const currencyCode = await fetchShopCurrency(shop, accessToken);
+    const refreshedConfig = await db.shopConfig.findUnique({ where: { shop } });
     const locations = await db.pickupLocation.findMany({ where: { shop, isActive: true } });
 
     let synced = 0;
@@ -664,10 +798,34 @@ export async function runAutoSetup(shop: string, accessToken: string): Promise<S
     for (const loc of locations) {
       try {
         const rateId = await ensureLocationRate(shop, accessToken, profile, currencyCode, loc);
+        const updateData: {
+          shopifyRateId?: string;
+          shopifyFeeVariantId?: string;
+          shopifyFeeVariantPrice?: string;
+        } = {};
+
+        if (rateId && rateId !== loc.shopifyRateId) {
+          updateData.shopifyRateId = rateId;
+        }
+
+        // Sync the per-location fee variant if we have a service fee product
+        if (refreshedConfig?.serviceFeeProductId && refreshedConfig?.serviceFeeVariantId) {
+          const { variantId, price } = await syncLocationFeeVariant(
+            shop,
+            accessToken,
+            refreshedConfig.serviceFeeProductId,
+            refreshedConfig.serviceFeeVariantId,
+            loc,
+          );
+          if (variantId !== loc.shopifyFeeVariantId) updateData.shopifyFeeVariantId = variantId;
+          if (price !== loc.shopifyFeeVariantPrice) updateData.shopifyFeeVariantPrice = price;
+        }
+
+        if (Object.keys(updateData).length > 0) {
+          await db.pickupLocation.update({ where: { id: loc.id }, data: updateData });
+        }
+
         if (rateId) {
-          if (rateId !== loc.shopifyRateId) {
-            await db.pickupLocation.update({ where: { id: loc.id }, data: { shopifyRateId: rateId } });
-          }
           synced++;
         } else {
           failures.push(`${loc.name}: rate creation returned no ID`);
