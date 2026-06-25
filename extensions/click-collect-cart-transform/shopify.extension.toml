@@ -1,0 +1,13 @@
+api_version = "2025-07"
+uid = "8247d25b-7d86-4975-eca8-bb56b2e61885af8bf1aa"
+
+[[extensions]]
+type = "function"
+name = "Click and Collect - Service Fee"
+handle = "click-collect-cart-transform"
+api_type = "cart_transform"
+
+[[extensions.targeting]]
+module = "./src/index.js"
+target = "purchase.cart-transform.run"
+input_query = "./src/run.graphql"

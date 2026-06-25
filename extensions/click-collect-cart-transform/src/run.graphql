@@ -1,0 +1,10 @@
+query RunInput {
+  cart {
+    lines {
+      id
+      attribute(key: "miko_fee_amount") {
+        value
+      }
+    }
+  }
+}

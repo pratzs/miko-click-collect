@@ -58,12 +58,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     setup: {
       completed: !!config?.setupCompletedAt,
       error: config?.setupError ?? "",
+      serviceFeeVariantId: config?.serviceFeeVariantId ?? "",
       deliveryCustomizationId: config?.deliveryCustomizationId ?? "",
       locationCount: await db.pickupLocation.count({ where: { shop, isActive: true } }),
       ratedLocationCount: await db.pickupLocation.count({
         where: { shop, isActive: true, NOT: { shopifyRateId: "" } },
       }),
-      // Theme block beacon — true if hit in the last 30 days
       cartBlockInstalled:
         !!config?.cartBlockLastSeenAt &&
         Date.now() - new Date(config.cartBlockLastSeenAt).getTime() < 30 * 24 * 60 * 60 * 1000,
@@ -311,6 +311,7 @@ export default function SettingsPage() {
               )}
 
               <BlockStack gap="200">
+                <SetupRow ok={!!setup.serviceFeeVariantId} label="Service fee product created (used for paid pickup fees)" />
                 <SetupRow
                   ok={setup.locationCount > 0 && setup.ratedLocationCount === setup.locationCount}
                   label={

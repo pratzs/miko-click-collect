@@ -179,14 +179,17 @@ export default function HelpPage() {
                 <Text as="h3" variant="headingSm">What gets auto-created in your Shopify store</Text>
                 <List>
                   <List.Item>
-                    <Text as="span" fontWeight="semibold">One shipping rate per pickup location</Text>, named "Click and Collect - {"{Location Name}"}". The price equals the service fee you configured for that location (or $0 if free). These appear in Settings → Shipping and delivery → your shipping profile.
+                    <Text as="span" fontWeight="semibold">A hidden "Click and Collect Service Fee" product</Text> — used as a cart line item when the customer chooses a paid pickup location. This is what gives the order summary a clearly labelled fee line instead of a generic "Shipping $X.XX".
+                  </List.Item>
+                  <List.Item>
+                    <Text as="span" fontWeight="semibold">One $0 shipping rate per pickup location</Text>, named "Click and Collect - {"{Location Name}"}". Acts as the delivery option Shopify needs; the actual fee is charged on the cart line above.
                   </List.Item>
                   <List.Item>
                     <Text as="span" fontWeight="semibold">A delivery customisation</Text> that hides every paid shipping rate when a customer selects in-store pickup, and shows ONLY the rate for the location they selected.
                   </List.Item>
                 </List>
                 <Banner tone="info">
-                  Rates are created and updated automatically every time you add, edit, or delete a pickup location. If anything looks wrong, click "Re-run setup" in Settings.
+                  Everything is rebuilt automatically every time you add, edit, or delete a pickup location. If anything looks wrong, click "Re-run setup" in Settings.
                 </Banner>
               </BlockStack>
 

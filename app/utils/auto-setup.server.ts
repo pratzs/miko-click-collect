@@ -2,18 +2,20 @@
  * Auto-setup creates everything in the merchant's Shopify store that's needed
  * for Click and Collect to "just work" — no manual configuration required.
  *
- * Design: one Shopify shipping rate per pickup location.
- *   - Location with no fee   → "Click and Collect - {Name}" @ $0
- *   - Location with a fee    → "Click and Collect - {Name}" @ ${fee}
+ * Design (hybrid):
+ *   1. Per-location shipping rates, always priced $0 — gives Shopify a valid
+ *      delivery option whose name identifies the pickup location.
+ *   2. A hidden "Click and Collect Service Fee" product — added as a separate
+ *      cart line item when the customer picks a paid location. Customer sees
+ *      "Click and Collect Service Fee · $6.00" in the order summary instead
+ *      of a vague "Shipping $6.00" line.
+ *   3. Cart transform function that sets the fee line's price dynamically
+ *      based on the cart's miko_fee_amount attribute, respecting "free above
+ *      $X" thresholds.
  *
- * The delivery customisation function then shows ONLY the rate matching the
+ * The delivery customisation function shows ONLY the rate matching the
  * customer's selected location (and hides all paid shipping rates), and hides
  * every "Click and Collect - *" rate when pickup is NOT selected.
- *
- * Benefits:
- *   - No fake fee product, no product-availability errors at checkout
- *   - Tax is handled natively by Shopify per-rate
- *   - Fees are visible as part of standard shipping line, not a mysterious item
  *
  * All steps are idempotent.
  */
@@ -23,7 +25,10 @@ import { db } from "../db.server";
 const API_VERSION = "2026-04";
 const DELIVERY_CUSTOMIZATION_TITLE = "Click and Collect - Hide Shipping";
 const FUNCTION_TITLE = "Click and Collect - Hide Shipping";
+const CART_TRANSFORM_FUNCTION_TITLE = "Click and Collect - Service Fee";
 const RATE_PREFIX = "Click and Collect"; // rate titles are "Click and Collect - {location name}"
+const SERVICE_FEE_PRODUCT_TITLE = "Click and Collect Service Fee";
+const SERVICE_FEE_PRODUCT_HANDLE = "miko-click-collect-service-fee";
 
 type ShopifyGraphQLResponse<T> = { data?: T; errors?: Array<{ message: string }> };
 
@@ -57,18 +62,165 @@ async function fetchShopCurrency(shop: string, accessToken: string): Promise<str
   return res.data?.shop?.currencyCode ?? "USD";
 }
 
-/* ===== Cleanup: remove any service fee product from older app versions ===== */
+/* ===== Service fee product (used as a cart line item for paid pickups) ===== */
 
-async function cleanupLegacyServiceFeeProduct(shop: string, accessToken: string, productId: string) {
-  if (!productId) return;
+async function publishProductEverywhere(shop: string, accessToken: string, productId: string) {
+  const pubRes = await shopifyGraphql<{
+    publications: { nodes: Array<{ id: string; name: string }> };
+  }>(shop, accessToken, `{ publications(first: 25) { nodes { id name } } }`);
+
+  const publications = pubRes.data?.publications?.nodes ?? [];
+  if (publications.length === 0) return;
+
   await shopifyGraphql(
     shop,
     accessToken,
-    `mutation($input: ProductDeleteInput!) {
-      productDelete(input: $input) { deletedProductId userErrors { message } }
+    `mutation publishablePublish($id: ID!, $input: [PublicationInput!]!) {
+      publishablePublish(id: $id, input: $input) {
+        userErrors { message }
+      }
     }`,
-    { input: { id: productId } },
+    {
+      id: productId,
+      input: publications.map((p) => ({ publicationId: p.id })),
+    },
+  );
+}
+
+async function ensureServiceFeeProduct(
+  shop: string,
+  accessToken: string,
+  existingProductId: string,
+  existingVariantId: string,
+): Promise<{ productId: string; variantId: string }> {
+  // Verify existing variant is still alive
+  if (existingVariantId) {
+    const verify = await shopifyGraphql<{
+      productVariant: { id: string; product: { id: string } } | null;
+    }>(
+      shop,
+      accessToken,
+      `query($id: ID!) { productVariant(id: $id) { id product { id } } }`,
+      { id: existingVariantId },
+    );
+    if (verify.data?.productVariant?.id) {
+      const productId = verify.data.productVariant.product.id;
+      await publishProductEverywhere(shop, accessToken, productId);
+      return { productId, variantId: verify.data.productVariant.id };
+    }
+  }
+
+  // Look up by handle (existing product from a prior install)
+  const lookup = await shopifyGraphql<{
+    productByHandle: { id: string; variants: { nodes: Array<{ id: string }> } } | null;
+  }>(
+    shop,
+    accessToken,
+    `query { productByHandle(handle: "${SERVICE_FEE_PRODUCT_HANDLE}") { id variants(first: 1) { nodes { id } } } }`,
+  );
+  if (lookup.data?.productByHandle?.id) {
+    const productId = lookup.data.productByHandle.id;
+    const variantId = lookup.data.productByHandle.variants.nodes[0]?.id ?? "";
+    if (variantId) {
+      await publishProductEverywhere(shop, accessToken, productId);
+      return { productId, variantId };
+    }
+  }
+
+  // Create fresh
+  const create = await shopifyGraphql<{
+    productCreate: { product: { id: string } | null; userErrors: Array<{ message: string }> };
+  }>(
+    shop,
+    accessToken,
+    `mutation productCreate($input: ProductInput!) {
+      productCreate(input: $input) {
+        product { id }
+        userErrors { message }
+      }
+    }`,
+    {
+      input: {
+        title: SERVICE_FEE_PRODUCT_TITLE,
+        handle: SERVICE_FEE_PRODUCT_HANDLE,
+        productType: "Service",
+        vendor: "Click and Collect",
+        status: "ACTIVE",
+        // Tags to keep it filtered out of any merchant collection automation
+        tags: ["miko-click-collect-hidden", "hidden-product"],
+        // Empty SEO so the product page returns no search-friendly metadata
+        seo: { title: "", description: "" },
+        descriptionHtml: "",
+      },
+    },
+  );
+
+  const errors = create.data?.productCreate?.userErrors ?? [];
+  if (errors.length > 0) {
+    throw new Error(`Could not create service fee product: ${errors.map((e) => e.message).join("; ")}`);
+  }
+  const productId = create.data?.productCreate?.product?.id ?? "";
+  if (!productId) throw new Error("Service fee product create returned no ID");
+
+  const variantQuery = await shopifyGraphql<{
+    product: { variants: { nodes: Array<{ id: string }> } } | null;
+  }>(
+    shop,
+    accessToken,
+    `query($id: ID!) { product(id: $id) { variants(first: 1) { nodes { id } } } }`,
+    { id: productId },
+  );
+  const variantId = variantQuery.data?.product?.variants.nodes[0]?.id ?? "";
+  if (!variantId) throw new Error("Service fee product was created but has no variant");
+
+  // Configure variant: $0, not taxable, no inventory tracking, no shipping required
+  await shopifyGraphql(
+    shop,
+    accessToken,
+    `mutation($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+      productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+        userErrors { message }
+      }
+    }`,
+    {
+      productId,
+      variants: [
+        {
+          id: variantId,
+          price: "0.00",
+          taxable: false,
+          inventoryItem: { tracked: false, requiresShipping: false },
+        },
+      ],
+    },
+  );
+
+  // Hide from search / theme via the seo.hidden metafield convention (themes that
+  // respect this exclude the product from search, sitemaps, and product feeds)
+  await shopifyGraphql(
+    shop,
+    accessToken,
+    `mutation metafieldsSet($metafields: [MetafieldsSetInput!]!) {
+      metafieldsSet(metafields: $metafields) {
+        userErrors { message }
+      }
+    }`,
+    {
+      metafields: [
+        {
+          ownerId: productId,
+          namespace: "seo",
+          key: "hidden",
+          type: "single_line_text_field",
+          value: "1",
+        },
+      ],
+    },
   ).catch(() => null);
+
+  await publishProductEverywhere(shop, accessToken, productId);
+
+  return { productId, variantId };
 }
 
 /* ===== Per-location shipping rates ===== */
@@ -133,10 +285,10 @@ async function ensureLocationRate(
   location: { id: string; name: string; serviceFeeType: string; serviceFeeAmount: number; shopifyRateId: string },
 ): Promise<string> {
   const desiredName = rateNameForLocation(location.name);
-  const desiredPrice =
-    location.serviceFeeType !== "free" && location.serviceFeeAmount > 0
-      ? location.serviceFeeAmount.toFixed(2)
-      : "0.00";
+  // Rate is always $0 — the fee is added as a separate "Click and Collect Service Fee"
+  // line item in the cart, so the customer sees it labelled correctly instead of as
+  // generic Shopify "Shipping".
+  const desiredPrice = "0.00";
 
   // Check existing rate by stored ID
   for (const lg of profile.profileLocationGroups) {
@@ -455,9 +607,9 @@ async function ensureDeliveryCustomization(
 export type SetupResult = {
   ok: boolean;
   steps: {
+    serviceFeeProduct: { ok: boolean; error?: string };
     locationRates: { ok: boolean; error?: string; count?: number };
     deliveryCustomization: { ok: boolean; error?: string };
-    cleanup: { ok: boolean; error?: string };
   };
 };
 
@@ -477,25 +629,28 @@ export async function runAutoSetup(shop: string, accessToken: string): Promise<S
   const result: SetupResult = {
     ok: true,
     steps: {
+      serviceFeeProduct: { ok: false },
       locationRates: { ok: false },
       deliveryCustomization: { ok: false },
-      cleanup: { ok: false },
     },
   };
 
-  // Step 0: clean up the old service fee product if it exists (no longer used)
+  // Step 0: service fee product
   try {
-    if (config.serviceFeeProductId) {
-      await cleanupLegacyServiceFeeProduct(shop, accessToken, config.serviceFeeProductId);
-      await db.shopConfig.update({
-        where: { shop },
-        data: { serviceFeeProductId: "", serviceFeeVariantId: "", pickupShippingRateId: "" },
-      });
-    }
-    result.steps.cleanup = { ok: true };
+    const { productId, variantId } = await ensureServiceFeeProduct(
+      shop,
+      accessToken,
+      config.serviceFeeProductId,
+      config.serviceFeeVariantId,
+    );
+    await db.shopConfig.update({
+      where: { shop },
+      data: { serviceFeeProductId: productId, serviceFeeVariantId: variantId },
+    });
+    result.steps.serviceFeeProduct = { ok: true };
   } catch (e) {
-    result.steps.cleanup = { ok: false, error: e instanceof Error ? e.message : String(e) };
-    // non-fatal
+    result.ok = false;
+    result.steps.serviceFeeProduct = { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 
   // Step 1: per-location shipping rates
