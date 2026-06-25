@@ -267,34 +267,29 @@ export default function HelpPage() {
               <Divider />
 
               <BlockStack gap="200">
-                <Text as="h3" variant="headingSm">Customising Shopify&apos;s order confirmation email</Text>
+                <Text as="h3" variant="headingSm">Hide the service fee line in Shopify&apos;s order confirmation email</Text>
                 <Text as="p" tone="subdued">
-                  Shopify&apos;s default order confirmation email mentions "shipping". You can customise it to detect click and collect orders:
+                  Optional. Shopify&apos;s default order confirmation email lists every cart line, including our internal "Click and Collect Service Fee" line. To hide it:
                 </Text>
                 <List type="number">
                   <List.Item>
-                    Go to <Text as="span" fontWeight="semibold">Settings &gt; Notifications &gt; Order confirmation</Text>
+                    Go to <Text as="span" fontWeight="semibold">Settings → Notifications → Order confirmation → Edit code</Text>
                   </List.Item>
-                  <List.Item>Click <Text as="span" fontWeight="semibold">Edit code</Text></List.Item>
                   <List.Item>
-                    Add this Liquid condition where the shipping section is:
+                    Find the line item loop (it starts with <Text as="span" fontWeight="semibold">{`{% for line in subtotal_line_items %}`}</Text>)
+                  </List.Item>
+                  <List.Item>
+                    Right after that line, paste:
                   </List.Item>
                 </List>
                 <Box padding="300" background="bg-surface-secondary" borderRadius="200">
                   <Text as="p" variant="bodySm">
-                    {`{%- assign is_pickup = false -%}`}<br />
-                    {`{%- for attr in attributes -%}`}<br />
-                    {`  {%- if attr.first == "miko_pickup_method" and attr.last == "click_and_collect" -%}`}<br />
-                    {`    {%- assign is_pickup = true -%}`}<br />
-                    {`  {%- endif -%}`}<br />
-                    {`{%- endfor -%}`}<br />
-                    {`{%- if is_pickup -%}`}<br />
-                    {`  <p>Your order will be ready for in-store pickup. We'll email you when it's ready to collect.</p>`}<br />
-                    {`{%- else -%}`}<br />
-                    {`  <!-- your normal shipping text here -->`}<br />
-                    {`{%- endif -%}`}
+                    {`{%- if line.title contains "Click and Collect Service Fee" -%}{% continue %}{%- endif -%}`}
                   </Text>
                 </Box>
+                <Text as="p" tone="subdued" variant="bodySm">
+                  Save. The fee line is now hidden from the confirmation email; total still includes it.
+                </Text>
               </BlockStack>
             </BlockStack>
           </Card>
