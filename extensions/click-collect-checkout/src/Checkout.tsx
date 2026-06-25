@@ -3,6 +3,9 @@ import {
   useShop,
   useSettings,
   useApplyAttributeChange,
+  useApplyCartLinesChange,
+  useAttributes,
+  useCartLines,
   Banner,
   BlockStack,
   Checkbox,
@@ -12,7 +15,7 @@ import {
   Divider,
   SkeletonText,
 } from "@shopify/ui-extensions-react/checkout";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 type Location = {
   id: string;
@@ -28,9 +31,11 @@ type Location = {
   serviceFeeAmount: number;
   serviceFeeFreeAbove: number;
   serviceFeeLabel: string;
+  serviceFeeVariantId: string | null;
 };
 
 const APP_URL = "https://miko-click-collect-production.up.railway.app";
+const FEE_LINE_ATTR = "_miko_service_fee_line";
 
 const TODAY_KEY = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"][new Date().getDay()];
 
@@ -43,7 +48,7 @@ function formatPrepTime(minutes: number): string {
 
 function formatFee(location: Location): string | null {
   if (location.serviceFeeType === "free") return null;
-  const label = location.serviceFeeLabel || "Pickup service fee";
+  const label = location.serviceFeeLabel || "Packing fee";
   if (location.serviceFeeType === "fixed") {
     const freeText = location.serviceFeeFreeAbove > 0
       ? ` (free on orders over $${location.serviceFeeFreeAbove})`
@@ -54,7 +59,7 @@ function formatFee(location: Location): string | null {
     const freeText = location.serviceFeeFreeAbove > 0
       ? ` (free on orders over $${location.serviceFeeFreeAbove})`
       : "";
-    return `${label}: ${location.serviceFeeAmount}% of order total${freeText}`;
+    return `${label}: ${location.serviceFeeAmount}%${freeText}`;
   }
   return null;
 }
@@ -78,22 +83,14 @@ function LocationCard({ location }: { location: Location }) {
         </Text>
       )}
       <InlineStack spacing="tight">
-        {hoursText && (
-          <Text size="small" appearance="subdued">{hoursText}</Text>
-        )}
-        <Text size="small" appearance="subdued">
-          Ready in {formatPrepTime(location.prepTimeMinutes)}
-        </Text>
+        {hoursText && <Text size="small" appearance="subdued">{hoursText}</Text>}
+        <Text size="small" appearance="subdued">Ready in {formatPrepTime(location.prepTimeMinutes)}</Text>
       </InlineStack>
-      {location.phone && (
-        <Text size="small" appearance="subdued">Phone: {location.phone}</Text>
-      )}
-      {feeText && (
-        <Text size="small" appearance="info">{feeText}</Text>
-      )}
-      {!feeText && (
-        <Text size="small" appearance="success">Free pickup</Text>
-      )}
+      {location.phone && <Text size="small" appearance="subdued">Phone: {location.phone}</Text>}
+      {feeText
+        ? <Text size="small" appearance="info">{feeText}</Text>
+        : <Text size="small" appearance="success">Free pickup</Text>
+      }
       {location.collectionInstructions && (
         <Text size="small" appearance="subdued">{location.collectionInstructions}</Text>
       )}
@@ -108,51 +105,92 @@ export default reactExtension("purchase.checkout.delivery-address.render-before"
 function ClickCollectExtension() {
   const { myshopifyDomain } = useShop();
   const applyAttributeChange = useApplyAttributeChange();
+  const applyCartLinesChange = useApplyCartLinesChange();
   const settings = useSettings();
+  const cartAttributes = useAttributes();
+  const cartLines = useCartLines();
 
   const heading = (settings.heading as string) || "Click & Collect";
   const description = (settings.description as string) || "Skip the wait and collect your order from one of our pickup locations.";
   const checkboxLabel = (settings.checkbox_label as string) || "I will collect my order in-store";
 
+  // Read existing cart attribute state — persists across page loads within the same checkout session
+  const existingPickupMethod = cartAttributes?.find(a => a.key === "miko_pickup_method")?.value ?? "";
+  const existingLocationId = cartAttributes?.find(a => a.key === "miko_location_id")?.value ?? "";
+
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isClickCollect, setIsClickCollect] = useState(false);
-  const [selectedLocationId, setSelectedLocationId] = useState<string>("");
+
+  // Initialise from cart attribute so the checkbox reflects the actual cart state on reload
+  const [isClickCollect, setIsClickCollect] = useState(existingPickupMethod === "click_and_collect");
+  const [selectedLocationId, setSelectedLocationId] = useState<string>(existingLocationId);
+
+  // Track the fee line cart line id so we can remove it when needed
+  const feeLine = cartLines.find(l =>
+    l.attributes?.some(a => a.key === FEE_LINE_ATTR && a.value === "true")
+  );
+  const feeLineId = feeLine?.id ?? null;
+
+  // Stable ref to avoid stale closures in callbacks
+  const feeLineIdRef = useRef(feeLineId);
+  feeLineIdRef.current = feeLineId;
 
   useEffect(() => {
     fetch(`${APP_URL}/api/public/locations?shop=${myshopifyDomain}`)
       .then((r) => r.json())
       .then((data: { locations: Location[] }) => {
-        setLocations(data.locations ?? []);
-        if (data.locations?.length > 0) {
-          setSelectedLocationId(data.locations[0].id);
+        const locs: Location[] = data.locations ?? [];
+        setLocations(locs);
+        // If no location was previously selected, default to the first one
+        if (!existingLocationId && locs.length > 0) {
+          setSelectedLocationId(locs[0].id);
         }
       })
       .catch(() => setError("Could not load pickup locations."))
       .finally(() => setLoading(false));
-  }, [myshopifyDomain]);
+  }, [myshopifyDomain]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const removeFeeLineIfPresent = useCallback(async () => {
+    if (feeLineIdRef.current) {
+      await applyCartLinesChange({ type: "removeCartLine", id: feeLineIdRef.current, quantity: 1 });
+    }
+  }, [applyCartLinesChange]);
 
   const setAttributes = useCallback(
     async (enabled: boolean, locId: string, locName: string, loc?: Location) => {
       if (enabled) {
-        // Calculate the service fee for this location and cart
-        let feeAmount = "0";
-        if (loc && loc.serviceFeeType !== "free" && loc.serviceFeeAmount > 0) {
-          feeAmount = loc.serviceFeeAmount.toFixed(2);
-        }
         await applyAttributeChange({ type: "updateAttribute", key: "miko_pickup_method", value: "click_and_collect" });
         await applyAttributeChange({ type: "updateAttribute", key: "miko_location_id", value: locId });
         await applyAttributeChange({ type: "updateAttribute", key: "miko_location_name", value: locName });
+
+        // Service fee
+        const hasFee = loc && loc.serviceFeeType !== "free" && loc.serviceFeeAmount > 0;
+        const feeAmount = hasFee ? loc!.serviceFeeAmount.toFixed(2) : "0";
         await applyAttributeChange({ type: "updateAttribute", key: "miko_service_fee", value: feeAmount });
+
+        // Add fee as a line item if the location has a variant ID configured
+        if (hasFee && loc!.serviceFeeVariantId) {
+          // Remove existing fee line first to avoid duplicates
+          await removeFeeLineIfPresent();
+          await applyCartLinesChange({
+            type: "addCartLine",
+            merchandiseId: loc!.serviceFeeVariantId,
+            quantity: 1,
+            attributes: [{ key: FEE_LINE_ATTR, value: "true" }],
+          });
+        } else if (!hasFee) {
+          await removeFeeLineIfPresent();
+        }
       } else {
         await applyAttributeChange({ type: "updateAttribute", key: "miko_pickup_method", value: "" });
         await applyAttributeChange({ type: "updateAttribute", key: "miko_location_id", value: "" });
         await applyAttributeChange({ type: "updateAttribute", key: "miko_location_name", value: "" });
         await applyAttributeChange({ type: "updateAttribute", key: "miko_service_fee", value: "" });
+        await removeFeeLineIfPresent();
       }
     },
-    [applyAttributeChange],
+    [applyAttributeChange, applyCartLinesChange, removeFeeLineIfPresent],
   );
 
   const handleToggle = useCallback(
@@ -190,9 +228,7 @@ function ClickCollectExtension() {
 
       {loading && <SkeletonText inlineSize="fill" />}
 
-      {error && (
-        <Banner status="warning">{error}</Banner>
-      )}
+      {error && <Banner status="warning">{error}</Banner>}
 
       {!loading && !error && locations.length > 0 && (
         <BlockStack spacing="base">
@@ -206,7 +242,7 @@ function ClickCollectExtension() {
 
           {isClickCollect && (
             <BlockStack spacing="base">
-              {locations.length > 1 ? (
+              {locations.length > 1 && (
                 <Select
                   label="Select pickup location"
                   options={locations.map((l) => ({
@@ -216,7 +252,7 @@ function ClickCollectExtension() {
                   value={selectedLocationId}
                   onChange={handleLocationChange}
                 />
-              ) : null}
+              )}
 
               {selectedLocation && (
                 <BlockStack spacing="tight" padding="base" border="base" cornerRadius="base">

@@ -101,6 +101,7 @@ model PickupLocation {
   serviceFeeAmount    Float  @default(0)        // dollar amount or percentage
   serviceFeeFreeAbove Float  @default(0)        // free when order is above this amount (0 = always charge)
   serviceFeeLabel     String @default("")       // custom label e.g. "Packing fee"
+  serviceFeeVariantId String @default("")       // Shopify variant GID for the fee line item (optional)
 
   isActive  Boolean @default(true)
   sortOrder Int     @default(0)
