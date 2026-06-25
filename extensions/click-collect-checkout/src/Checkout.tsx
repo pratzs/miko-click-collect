@@ -119,15 +119,17 @@ function ClickCollectExtension() {
   const description = (settings.description as string) || "Skip the wait and collect your order from one of our pickup locations.";
   const checkboxLabel = (settings.checkbox_label as string) || "I will collect my order in-store";
 
-  const existingPickupMethod = cartAttributes?.find(a => a.key === "miko_pickup_method")?.value ?? "";
   const existingLocationId = cartAttributes?.find(a => a.key === "miko_location_id")?.value ?? "";
 
   const [locations, setLocations] = useState<Location[]>([]);
   const [serviceFeeVariantId, setServiceFeeVariantId] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isClickCollect, setIsClickCollect] = useState(existingPickupMethod === "click_and_collect");
+  // Always default to unchecked so customers actively opt in to pickup each checkout.
+  // Stale fee line items from prior sessions are cleared on mount below.
+  const [isClickCollect, setIsClickCollect] = useState(false);
   const [selectedLocationId, setSelectedLocationId] = useState<string>(existingLocationId);
+  const cleanedRef = useRef(false);
 
   // Cart subtotal excluding our fee line — used for "free above" calculation
   const subtotal = cartLines
@@ -150,13 +152,43 @@ function ClickCollectExtension() {
         const locs = data.locations ?? [];
         setLocations(locs);
         setServiceFeeVariantId(data.serviceFeeVariantId ?? "");
-        if (!existingLocationId && locs.length > 0) {
+        if (locs.length > 0) {
           setSelectedLocationId(locs[0].id);
         }
       })
       .catch(() => setError("Could not load pickup locations."))
       .finally(() => setLoading(false));
   }, [myshopifyDomain]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // On first mount, clear any stale pickup state left over from a previous checkout session.
+  // The customer must actively re-tick the checkbox each time they reach this checkout.
+  useEffect(() => {
+    if (cleanedRef.current) return;
+    cleanedRef.current = true;
+
+    const hasStaleAttributes = cartAttributes?.some(
+      (a) =>
+        (a.key === "miko_pickup_method" && a.value) ||
+        (a.key === "miko_location_id" && a.value) ||
+        (a.key === "miko_location_name" && a.value) ||
+        (a.key === "miko_service_fee" && a.value),
+    );
+    const staleFeeLine = cartLines.find((l) =>
+      l.attributes?.some((a) => a.key === FEE_LINE_FLAG && a.value === "true"),
+    );
+
+    if (hasStaleAttributes || staleFeeLine) {
+      (async () => {
+        await applyAttributeChange({ type: "updateAttribute", key: "miko_pickup_method", value: "" });
+        await applyAttributeChange({ type: "updateAttribute", key: "miko_location_id", value: "" });
+        await applyAttributeChange({ type: "updateAttribute", key: "miko_location_name", value: "" });
+        await applyAttributeChange({ type: "updateAttribute", key: "miko_service_fee", value: "" });
+        if (staleFeeLine) {
+          await applyCartLinesChange({ type: "removeCartLine", id: staleFeeLine.id, quantity: 1 });
+        }
+      })();
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const removeFeeLine = useCallback(async () => {
     if (feeLineIdRef.current) {

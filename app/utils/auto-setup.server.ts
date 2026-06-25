@@ -45,7 +45,7 @@ async function ensureServiceFeeProduct(
   accessToken: string,
   existingVariantId: string,
 ): Promise<{ productId: string; variantId: string }> {
-  // If we already have an ID, verify it still exists
+  // If we already have an ID, verify it still exists and ensure it's published
   if (existingVariantId) {
     const verify = await shopifyGraphql<{ productVariant: { id: string; product: { id: string } } | null }>(
       shop,
@@ -54,10 +54,10 @@ async function ensureServiceFeeProduct(
       { id: existingVariantId },
     );
     if (verify.data?.productVariant?.id) {
-      return {
-        productId: verify.data.productVariant.product.id,
-        variantId: verify.data.productVariant.id,
-      };
+      const productId = verify.data.productVariant.product.id;
+      // Re-publish on every setup run — fixes "Unavailable product" if publication was lost
+      await publishProductEverywhere(shop, accessToken, productId);
+      return { productId, variantId: verify.data.productVariant.id };
     }
   }
 
@@ -73,7 +73,10 @@ async function ensureServiceFeeProduct(
   if (lookup.data?.productByHandle?.id) {
     const productId = lookup.data.productByHandle.id;
     const variantId = lookup.data.productByHandle.variants.nodes[0]?.id ?? "";
-    if (variantId) return { productId, variantId };
+    if (variantId) {
+      await publishProductEverywhere(shop, accessToken, productId);
+      return { productId, variantId };
+    }
   }
 
   // Create the product fresh
@@ -157,7 +160,38 @@ async function ensureServiceFeeProduct(
     },
   );
 
+  // Publish the product to ALL sales channels so it can be added to cart at checkout.
+  // Without publishing, customers see an "Unavailable product" error at checkout.
+  await publishProductEverywhere(shop, accessToken, productId);
+
   return { productId, variantId };
+}
+
+async function publishProductEverywhere(shop: string, accessToken: string, productId: string) {
+  const pubRes = await shopifyGraphql<{
+    publications: { nodes: Array<{ id: string; name: string }> };
+  }>(
+    shop,
+    accessToken,
+    `{ publications(first: 25) { nodes { id name } } }`,
+  );
+
+  const publications = pubRes.data?.publications?.nodes ?? [];
+  if (publications.length === 0) return;
+
+  await shopifyGraphql(
+    shop,
+    accessToken,
+    `mutation publishablePublish($id: ID!, $input: [PublicationInput!]!) {
+      publishablePublish(id: $id, input: $input) {
+        userErrors { message }
+      }
+    }`,
+    {
+      id: productId,
+      input: publications.map((p) => ({ publicationId: p.id })),
+    },
+  );
 }
 
 /* ===== Step 2: Free pickup shipping rate ===== */
