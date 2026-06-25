@@ -3,10 +3,10 @@ query RunInput {
     pickupMethod: attribute(key: "miko_pickup_method") {
       value
     }
-  }
-  deliveryGroups {
-    deliveryOptions {
-      handle
+    deliveryGroups {
+      deliveryOptions {
+        handle
+      }
     }
   }
 }

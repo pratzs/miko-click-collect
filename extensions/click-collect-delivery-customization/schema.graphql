@@ -1,0 +1,24 @@
+# Minimal Delivery Customization API schema
+scalar ID
+
+type Query {
+  cart: Cart!
+}
+
+type Cart {
+  attribute(key: String!): Attribute
+  deliveryGroups: [DeliveryGroup!]!
+}
+
+type Attribute {
+  key: String!
+  value: String
+}
+
+type DeliveryGroup {
+  deliveryOptions: [DeliveryOption!]!
+}
+
+type DeliveryOption {
+  handle: String!
+}

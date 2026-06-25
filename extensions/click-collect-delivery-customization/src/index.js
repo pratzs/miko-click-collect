@@ -1,8 +1,7 @@
 /**
  * Click and Collect - Hide Shipping Delivery Customization
  *
- * When the customer selects in-store pickup (miko_pickup_method = "click_and_collect"),
- * hide all standard shipping delivery options so they cannot accidentally pay for shipping.
+ * Hides all shipping options when the customer selects in-store pickup.
  *
  * @param {RunInput} input
  * @returns {FunctionRunResult}
@@ -14,8 +13,7 @@ export function run(input) {
     return { operations: [] };
   }
 
-  // Hide every delivery option across all delivery groups
-  const operations = input.deliveryGroups.flatMap((group) =>
+  const operations = (input.cart.deliveryGroups ?? []).flatMap((group) =>
     group.deliveryOptions.map((option) => ({
       hide: { deliveryOptionHandle: option.handle },
     }))

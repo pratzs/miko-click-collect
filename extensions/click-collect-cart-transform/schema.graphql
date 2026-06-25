@@ -1,0 +1,32 @@
+# Minimal Cart Transform API schema
+scalar Decimal
+scalar ID
+
+type Query {
+  cart: Cart!
+}
+
+type Cart {
+  lines: [CartLine!]!
+  attribute(key: String!): Attribute
+}
+
+type CartLine {
+  id: ID!
+  quantity: Int!
+  cost: CartLineCost!
+}
+
+type CartLineCost {
+  amountPerQuantity: MoneyV2!
+}
+
+type MoneyV2 {
+  amount: Decimal!
+  currencyCode: String!
+}
+
+type Attribute {
+  key: String!
+  value: String
+}
