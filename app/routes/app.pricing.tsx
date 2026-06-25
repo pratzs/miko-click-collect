@@ -84,6 +84,33 @@ export default function PricingPage() {
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  async function handleCancel() {
+    const confirmed = window.confirm(
+      "Downgrade to the Free plan? You can upgrade again any time.",
+    );
+    if (!confirmed) return;
+    setLoading("cancel");
+    setError(null);
+    try {
+      const token = await Promise.race([
+        shopify.idToken(),
+        new Promise<never>((_, rej) =>
+          setTimeout(() => rej(new Error("This is taking longer than expected. Please refresh the page and try again.")), 8000),
+        ),
+      ]);
+      await fetch("/app/cancel", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      window.location.reload();
+    } catch (e) {
+      console.error("[billing] cancel failed:", e);
+      setError(e instanceof Error ? e.message : "Something went wrong. Please refresh and try again.");
+    } finally {
+      setLoading(null);
+    }
+  }
+
   async function handleSubscribe(plan: string) {
     setLoading(plan);
     setError(null);
@@ -153,7 +180,17 @@ export default function PricingPage() {
                   {isCurrent ? (
                     <Button disabled fullWidth>Current plan</Button>
                   ) : key === "free" ? (
-                    <Button fullWidth disabled>Downgrade</Button>
+                    currentPlan === "free" ? (
+                      <Button disabled fullWidth>Current plan</Button>
+                    ) : (
+                      <Button
+                        fullWidth
+                        loading={loading === "cancel"}
+                        onClick={handleCancel}
+                      >
+                        Downgrade to Free
+                      </Button>
+                    )
                   ) : (
                     <Button
                       variant="primary"
