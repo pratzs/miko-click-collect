@@ -1,4 +1,4 @@
-import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/node";
+import type { LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import { useLoaderData } from "@remix-run/react";
 import { useAppBridge } from "@shopify/app-bridge-react";
@@ -30,21 +30,30 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const planName = config?.planName ?? "free";
   const isTest = process.env.SHOPIFY_BILLING_TEST !== "false";
 
-  let activeSubscription: string | null = null;
+  let activePlan = planName;
   try {
     const billingCheck = await billing.check({ plans: ["starter", "growth"], isTest });
     if (billingCheck.hasActivePayment) {
-      activeSubscription = billingCheck.appSubscriptions?.[0]?.name ?? null;
+      const subName = billingCheck.appSubscriptions?.[0]?.name ?? null;
+      if (subName && subName !== planName) {
+        activePlan = subName;
+        await db.shopConfig.update({
+          where: { shop },
+          data: { planName: subName },
+        });
+      }
+    } else if (planName !== "free") {
+      activePlan = "free";
+      await db.shopConfig.update({
+        where: { shop },
+        data: { planName: "free" },
+      });
     }
   } catch { /* no active subscription */ }
 
-  return json({ currentPlan: planName, activeSubscription, plans: PLANS, isTest });
+  return json({ currentPlan: activePlan, plans: PLANS, isTest });
 };
 
-export const action = async ({ request }: ActionFunctionArgs) => {
-  await authenticate.admin(request);
-  return json({ ok: true });
-};
 
 const PLAN_FEATURES: Record<string, string[]> = {
   free: [
@@ -81,19 +90,21 @@ export default function PricingPage() {
     try {
       const token = await Promise.race([
         shopify.idToken(),
-        new Promise<never>((_, rej) => setTimeout(() => rej(new Error("Timeout")), 8000)),
+        new Promise<never>((_, rej) =>
+          setTimeout(() => rej(new Error("This is taking longer than expected. Please refresh the page and try again.")), 8000),
+        ),
       ]);
       const res = await fetch(`/api/billing/subscribe?plan=${plan}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const data = await res.json() as { confirmationUrl?: string; error?: string };
-      if (data.confirmationUrl) {
-        open(data.confirmationUrl, "_top");
-      } else {
-        setError(data.error ?? "Something went wrong.");
+      const reauthUrl = res.headers.get("X-Shopify-API-Request-Failure-Reauthorize-Url");
+      if (reauthUrl) {
+        if (window.top) window.top.location.href = reauthUrl;
+        else window.location.href = reauthUrl;
       }
     } catch (e) {
-      setError(String(e));
+      console.error("[billing] subscribe failed:", e);
+      setError(e instanceof Error ? e.message : "Something went wrong. Please refresh and try again.");
     } finally {
       setLoading(null);
     }

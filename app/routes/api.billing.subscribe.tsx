@@ -1,40 +1,38 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
-import { json } from "@remix-run/node";
+import { redirect } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
-import { db } from "../db.server";
 
+/**
+ * billing.request() always throws a redirect Response whose
+ * X-Shopify-API-Request-Failure-Reauthorize-Url header carries
+ * the Shopify billing confirmation URL. The client reads that
+ * header and navigates window.top to it.
+ */
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session, billing } = await authenticate.admin(request);
-  const shop = session.shop;
+  const { billing, session } = await authenticate.admin(request);
 
   const url = new URL(request.url);
-  const plan = url.searchParams.get("plan") as "starter" | "growth" | null;
+  const plan = url.searchParams.get("plan");
 
   if (!plan || !["starter", "growth"].includes(plan)) {
-    return json({ error: "Invalid plan" }, { status: 400 });
+    return redirect("/app/pricing");
   }
 
-  const isTest = process.env.SHOPIFY_BILLING_TEST !== "false";
+  const shopHandle = session.shop.replace(".myshopify.com", "");
+  const clientId = process.env.SHOPIFY_API_KEY || "f19e6148d0f330661fc2a3e5c70479d4";
+  const returnUrl = `https://admin.shopify.com/store/${shopHandle}/apps/${clientId}/app/pricing`;
 
   try {
-    const result = await billing.request({
+    await billing.request({
       plan,
-      isTest,
-      returnUrl: `${process.env.SHOPIFY_APP_URL}/app/pricing?subscribed=${plan}`,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    }) as any;
-
-    // Update plan in DB optimistically
-    await db.shopConfig.update({
-      where: { shop },
-      data: {
-        planName: plan,
-        trialStartedAt: new Date(),
-      },
+      isTest: process.env.SHOPIFY_BILLING_TEST !== "false",
+      returnUrl,
     });
-
-    return json({ confirmationUrl: result?.confirmationUrl ?? null });
-  } catch (e) {
-    return json({ error: String(e) }, { status: 500 });
+  } catch (err: unknown) {
+    if (err instanceof Response) throw err;
+    console.error("[billing] unexpected error for", session.shop, err);
+    throw err;
   }
+
+  return redirect("/app/pricing");
 };
