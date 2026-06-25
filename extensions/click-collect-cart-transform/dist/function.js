@@ -10,34 +10,23 @@ __export(src_exports, {
   default: () => run
 });
 function run(input) {
-  const isPickup = input.cart.pickupMethod?.value === "click_and_collect";
-  const rawFee = input.cart.serviceFee?.value;
-  if (!isPickup || !rawFee) return { operations: [] };
-  const feeCents = Math.round(parseFloat(rawFee) * 100);
-  if (!feeCents || feeCents <= 0) return { operations: [] };
-  const lines = input.cart.lines;
-  if (!lines || lines.length === 0) return { operations: [] };
-  const totalUnits = lines.reduce((sum, l) => sum + l.quantity, 0);
-  const feePerUnitCents = Math.floor(feeCents / totalUnits);
-  let remainder = feeCents - feePerUnitCents * totalUnits;
-  const operations = lines.map((line) => {
-    const originalCents = Math.round(
-      parseFloat(line.cost.amountPerQuantity.amount) * 100
-    );
-    const thisLineFeePerUnit = feePerUnitCents + (remainder > 0 ? 1 : 0);
-    if (remainder > 0) remainder = Math.max(0, remainder - line.quantity);
-    const newPrice = ((originalCents + thisLineFeePerUnit) / 100).toFixed(2);
-    return {
+  const operations = [];
+  for (const line of input.cart.lines) {
+    const feeAttr = line.attribute?.value;
+    if (!feeAttr) continue;
+    const amount = parseFloat(feeAttr);
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+    operations.push({
       update: {
         cartLineId: line.id,
         price: {
           adjustment: {
-            fixedPricePerUnit: { amount: newPrice }
+            fixedPricePerUnit: { amount: amount.toFixed(2) }
           }
         }
       }
-    };
-  });
+    });
+  }
   return { operations };
 }
 

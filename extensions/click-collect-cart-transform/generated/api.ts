@@ -23,31 +23,18 @@ export type Attribute = {
 
 export type Cart = {
   __typename?: 'Cart';
-  attribute?: Maybe<Attribute>;
   lines: Array<CartLine>;
-};
-
-
-export type CartAttributeArgs = {
-  key: Scalars['String']['input'];
 };
 
 export type CartLine = {
   __typename?: 'CartLine';
-  cost: CartLineCost;
+  attribute?: Maybe<Attribute>;
   id: Scalars['ID']['output'];
-  quantity: Scalars['Int']['output'];
 };
 
-export type CartLineCost = {
-  __typename?: 'CartLineCost';
-  amountPerQuantity: MoneyV2;
-};
 
-export type MoneyV2 = {
-  __typename?: 'MoneyV2';
-  amount: Scalars['Decimal']['output'];
-  currencyCode: Scalars['String']['output'];
+export type CartLineAttributeArgs = {
+  key: Scalars['String']['input'];
 };
 
 export type Query = {
@@ -58,4 +45,4 @@ export type Query = {
 export type RunInputQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type RunInputQuery = { __typename?: 'Query', cart: { __typename?: 'Cart', pickupMethod?: { __typename?: 'Attribute', value?: string | null } | null, serviceFee?: { __typename?: 'Attribute', value?: string | null } | null, lines: Array<{ __typename?: 'CartLine', id: string, quantity: number, cost: { __typename?: 'CartLineCost', amountPerQuantity: { __typename?: 'MoneyV2', amount: any } } }> } };
+export type RunInputQuery = { __typename?: 'Query', cart: { __typename?: 'Cart', lines: Array<{ __typename?: 'CartLine', id: string, attribute?: { __typename?: 'Attribute', value?: string | null } | null }> } };

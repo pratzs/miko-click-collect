@@ -1,18 +1,9 @@
 query RunInput {
   cart {
-    pickupMethod: attribute(key: "miko_pickup_method") {
-      value
-    }
-    serviceFee: attribute(key: "miko_service_fee") {
-      value
-    }
     lines {
       id
-      quantity
-      cost {
-        amountPerQuantity {
-          amount
-        }
+      attribute(key: "miko_fee_amount") {
+        value
       }
     }
   }

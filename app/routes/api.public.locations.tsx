@@ -14,6 +14,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     });
   }
 
+  const config = await db.shopConfig.findUnique({
+    where: { shop },
+    select: { serviceFeeVariantId: true },
+  });
+
   const locations = await db.pickupLocation.findMany({
     where: { shop, isActive: true },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
@@ -31,12 +36,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       serviceFeeAmount: true,
       serviceFeeFreeAbove: true,
       serviceFeeLabel: true,
-      serviceFeeVariantId: true,
     },
   });
 
   return json(
-    { locations },
+    { locations, serviceFeeVariantId: config?.serviceFeeVariantId ?? "" },
     {
       headers: {
         "Access-Control-Allow-Origin": "*",

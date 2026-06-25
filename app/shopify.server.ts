@@ -8,6 +8,7 @@ import {
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import { db } from "./db.server";
 import { ensureShopConfig } from "./utils/shop.server";
+import { runAutoSetup } from "./utils/auto-setup.server";
 
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
@@ -40,6 +41,10 @@ const shopify = shopifyApp({
     afterAuth: async ({ session }) => {
       shopify.registerWebhooks({ session });
       await ensureShopConfig(session.shop, session.accessToken ?? "");
+      // Fire and forget — never block auth on setup; surfaces errors in the dashboard banner
+      runAutoSetup(session.shop, session.accessToken ?? "").catch((err) => {
+        console.error("[auto-setup] failed for", session.shop, err);
+      });
     },
   },
 });

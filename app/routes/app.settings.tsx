@@ -1,6 +1,6 @@
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { useLoaderData, useFetcher, useNavigate } from "@remix-run/react";
+import { useLoaderData, useFetcher } from "@remix-run/react";
 import {
   Page,
   Layout,
@@ -23,77 +23,18 @@ import { db } from "../db.server";
 import { hasSmtp } from "../utils/plans";
 import { useAppBridge } from "@shopify/app-bridge-react";
 
-const FUNCTIONS_QUERY = `#graphql
-  {
-    shopifyFunctions(first: 25) {
-      nodes { id title apiType }
-    }
-  }
-`;
-
-const ENABLE_MUTATION = `#graphql
-  mutation deliveryCustomizationCreate($deliveryCustomization: DeliveryCustomizationInput!) {
-    deliveryCustomizationCreate(deliveryCustomization: $deliveryCustomization) {
-      deliveryCustomization { id }
-      userErrors { message }
-    }
-  }
-`;
-
-const DELETE_MUTATION = `#graphql
-  mutation deliveryCustomizationDelete($id: ID!) {
-    deliveryCustomizationDelete(id: $id) {
-      deletedId
-      userErrors { message }
-    }
-  }
-`;
+import { runAutoSetup } from "../utils/auto-setup.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { admin, session } = await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
   const shop = session.shop;
 
-  const config = await db.shopConfig.findUnique({ where: { shop } });
-  let deliveryCustomizationId = config?.deliveryCustomizationId ?? "";
+  let config = await db.shopConfig.findUnique({ where: { shop } });
 
-  // Auto-refresh delivery customization when function ID changes after an app deploy
-  if (deliveryCustomizationId) {
-    try {
-      const fnRes = await admin.graphql(FUNCTIONS_QUERY);
-      const fnData = await fnRes.json();
-      const fns = fnData?.data?.shopifyFunctions?.nodes ?? [];
-      const fn = fns.find(
-        (f: { apiType: string; title: string }) =>
-          f.apiType === "delivery_customization" &&
-          f.title === "Click and Collect - Hide Shipping"
-      );
-      if (fn && fn.id !== (config?.deliveryCustomizationFunctionId ?? "")) {
-        // Function ID changed — delete old customization and recreate against new function
-        if (config?.deliveryCustomizationId) {
-          await admin.graphql(DELETE_MUTATION, { variables: { id: config.deliveryCustomizationId } }).catch(() => null);
-        }
-        const createRes = await admin.graphql(ENABLE_MUTATION, {
-          variables: {
-            deliveryCustomization: {
-              functionId: fn.id,
-              title: "Click and Collect - Hide Shipping",
-              enabled: true,
-            },
-          },
-        });
-        const createData = await createRes.json();
-        const newId = createData?.data?.deliveryCustomizationCreate?.deliveryCustomization?.id;
-        if (newId) {
-          await db.shopConfig.update({
-            where: { shop },
-            data: { deliveryCustomizationId: newId, deliveryCustomizationFunctionId: fn.id },
-          });
-          deliveryCustomizationId = newId;
-        }
-      }
-    } catch {
-      // Non-fatal — shipping waiver section still renders, user can manually re-enable
-    }
+  // Auto-run setup silently if it hasn't completed yet — keeps things working after deploys
+  if (config && (!config.setupCompletedAt || config.setupError)) {
+    await runAutoSetup(shop, session.accessToken ?? "").catch(() => null);
+    config = await db.shopConfig.findUnique({ where: { shop } });
   }
 
   return json({
@@ -114,7 +55,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     brandName: config?.brandName ?? "",
     useProcessingStep: config?.useProcessingStep ?? true,
     usePackingStep: config?.usePackingStep ?? true,
-    deliveryCustomizationId,
+    setup: {
+      completed: !!config?.setupCompletedAt,
+      error: config?.setupError ?? "",
+      serviceFeeVariantId: config?.serviceFeeVariantId ?? "",
+      pickupShippingRateId: config?.pickupShippingRateId ?? "",
+      deliveryCustomizationId: config?.deliveryCustomizationId ?? "",
+    },
   });
 };
 
@@ -154,59 +101,40 @@ export default function SettingsPage() {
   const data = useLoaderData<typeof loader>();
   const fetcher = useFetcher<{ ok?: boolean; message?: string }>();
   const shopify = useAppBridge();
-  const navigate = useNavigate();
-  const [dcLoading, setDcLoading] = useState(false);
-  const [dcStatus, setDcStatus] = useState<{ ok: boolean; msg: string } | null>(null);
-  const [deliveryCustomizationId, setDeliveryCustomizationId] = useState(data.deliveryCustomizationId);
+  const [setup, setSetup] = useState(data.setup);
+  const [setupLoading, setSetupLoading] = useState(false);
+  const [setupMsg, setSetupMsg] = useState<{ ok: boolean; msg: string } | null>(null);
 
-  async function enableDeliveryCustomization() {
-    setDcLoading(true);
-    setDcStatus(null);
+  async function reRunSetup() {
+    setSetupLoading(true);
+    setSetupMsg(null);
     try {
       const token = await shopify.idToken();
-      const res = await fetch("/api/enable-delivery-customization", {
+      const res = await fetch("/api/run-setup", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ action: "enable" }),
+        headers: { Authorization: `Bearer ${token}` },
       });
-      let result: { ok: boolean; id?: string; error?: string } = { ok: false };
-      try {
-        result = await res.json();
-      } catch {
-        setDcStatus({ ok: false, msg: `HTTP ${res.status} - unexpected response. The route may not be deployed yet. Refresh and try again.` });
-        return;
-      }
+      const result = await res.json();
       if (result.ok) {
-        setDeliveryCustomizationId(result.id ?? "enabled");
-        setDcStatus({ ok: true, msg: "Shipping waiver enabled. Customers who select click and collect will not see shipping options." });
+        setSetup({
+          completed: true,
+          error: "",
+          serviceFeeVariantId: setup.serviceFeeVariantId,
+          pickupShippingRateId: setup.pickupShippingRateId,
+          deliveryCustomizationId: setup.deliveryCustomizationId,
+        });
+        setSetupMsg({ ok: true, msg: "Setup re-run successfully. Everything is wired up." });
       } else {
-        setDcStatus({ ok: false, msg: result.error ?? "Failed to enable. Make sure you have deployed the app extensions." });
+        const errs = Object.entries(result.steps ?? {})
+          .filter(([, v]: [string, any]) => !v.ok)
+          .map(([k, v]: [string, any]) => `${k}: ${v.error}`)
+          .join("; ");
+        setSetupMsg({ ok: false, msg: errs || "Setup failed. Please contact support." });
       }
     } catch (e) {
-      setDcStatus({ ok: false, msg: `Error: ${e instanceof Error ? e.message : String(e)}` });
+      setSetupMsg({ ok: false, msg: `Error: ${e instanceof Error ? e.message : String(e)}` });
     }
-    setDcLoading(false);
-  }
-
-  async function disableDeliveryCustomization() {
-    setDcLoading(true);
-    setDcStatus(null);
-    try {
-      const token = await shopify.idToken();
-      const res = await fetch("/api/enable-delivery-customization", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ action: "disable" }),
-      });
-      const json = await res.json() as { ok: boolean };
-      if (json.ok) {
-        setDeliveryCustomizationId("");
-        setDcStatus({ ok: true, msg: "Shipping waiver disabled. Shipping options will show normally." });
-      }
-    } catch {
-      setDcStatus({ ok: false, msg: "Network error. Please try again." });
-    }
-    setDcLoading(false);
+    setSetupLoading(false);
   }
 
   const [senderName, setSenderName] = useState(data.senderName);
@@ -365,41 +293,37 @@ export default function SettingsPage() {
         <Layout.Section>
           <Card>
             <BlockStack gap="400">
-              <InlineGrid columns="1fr auto">
-                <Text variant="headingMd" as="h2">Shipping waiver</Text>
-                <Button variant="plain" onClick={() => navigate("/app/help")}>Setup guide</Button>
-              </InlineGrid>
-              <Text as="p" tone="subdued">
-                Hides paid shipping rates at checkout when a customer selects in-store pickup. Requires a free "Click and Collect" shipping rate to be added in <Text as="span" fontWeight="semibold">Shopify Admin → Settings → Shipping and delivery</Text> first — see the setup guide for full instructions.
-              </Text>
-              {dcStatus && (
-                <Banner tone={dcStatus.ok ? "success" : "critical"} onDismiss={() => setDcStatus(null)}>
-                  {dcStatus.msg}
+              <BlockStack gap="100">
+                <Text variant="headingMd" as="h2">Click and Collect setup</Text>
+                <Text as="p" tone="subdued">
+                  We have configured everything you need in your Shopify store automatically. No manual setup required.
+                </Text>
+              </BlockStack>
+
+              {setupMsg && (
+                <Banner tone={setupMsg.ok ? "success" : "critical"} onDismiss={() => setSetupMsg(null)}>
+                  {setupMsg.msg}
                 </Banner>
               )}
-              <InlineStack gap="300" blockAlign="center">
-                <div
-                  style={{
-                    width: 10,
-                    height: 10,
-                    borderRadius: "50%",
-                    background: deliveryCustomizationId ? "#10b981" : "#d1d5db",
-                    flexShrink: 0,
-                  }}
-                />
-                <Text as="p">
-                  {deliveryCustomizationId ? "Shipping waiver is active" : "Shipping waiver is not enabled"}
+
+              <BlockStack gap="200">
+                <SetupRow ok={!!setup.serviceFeeVariantId} label="Hidden service fee product created" />
+                <SetupRow ok={!!setup.pickupShippingRateId} label="Free 'Click and Collect' shipping rate added" />
+                <SetupRow ok={!!setup.deliveryCustomizationId} label="Shipping waiver active (hides paid rates on pickup orders)" />
+              </BlockStack>
+
+              {setup.error && !setup.completed && (
+                <Banner tone="warning">
+                  Some setup steps did not complete: {setup.error}. Click "Re-run setup" below.
+                </Banner>
+              )}
+
+              <InlineStack gap="200">
+                <Button onClick={reRunSetup} loading={setupLoading}>Re-run setup</Button>
+                <Text as="p" tone="subdued" variant="bodySm">
+                  Use this if something is not working at checkout or after a Shopify settings change.
                 </Text>
               </InlineStack>
-              {deliveryCustomizationId ? (
-                <Button tone="critical" onClick={disableDeliveryCustomization} loading={dcLoading}>
-                  Disable shipping waiver
-                </Button>
-              ) : (
-                <Button variant="primary" onClick={enableDeliveryCustomization} loading={dcLoading}>
-                  Enable shipping waiver
-                </Button>
-              )}
             </BlockStack>
           </Card>
         </Layout.Section>
@@ -416,5 +340,31 @@ export default function SettingsPage() {
         </Layout.Section>
       </Layout>
     </Page>
+  );
+}
+
+
+function SetupRow({ ok, label }: { ok: boolean; label: string }) {
+  return (
+    <InlineStack gap="200" blockAlign="center">
+      <div
+        style={{
+          width: 16,
+          height: 16,
+          borderRadius: "50%",
+          background: ok ? "#008060" : "#d1d5db",
+          color: "white",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 11,
+          fontWeight: 700,
+          flexShrink: 0,
+        }}
+      >
+        {ok ? "✓" : ""}
+      </div>
+      <Text as="p" variant="bodyMd">{label}</Text>
+    </InlineStack>
   );
 }
