@@ -48,6 +48,15 @@ function rateNameForLocation(name: string): string {
   return `${RATE_PREFIX} - ${name}`;
 }
 
+async function fetchShopCurrency(shop: string, accessToken: string): Promise<string> {
+  const res = await shopifyGraphql<{ shop: { currencyCode: string } }>(
+    shop,
+    accessToken,
+    `{ shop { currencyCode } }`,
+  );
+  return res.data?.shop?.currencyCode ?? "USD";
+}
+
 /* ===== Cleanup: remove any service fee product from older app versions ===== */
 
 async function cleanupLegacyServiceFeeProduct(shop: string, accessToken: string, productId: string) {
@@ -120,6 +129,7 @@ async function ensureLocationRate(
   shop: string,
   accessToken: string,
   profile: DeliveryProfileShape,
+  currencyCode: string,
   location: { id: string; name: string; serviceFeeType: string; serviceFeeAmount: number; shopifyRateId: string },
 ): Promise<string> {
   const desiredName = rateNameForLocation(location.name);
@@ -156,7 +166,7 @@ async function ensureLocationRate(
                             id: md.id,
                             name: desiredName,
                             active: true,
-                            rateDefinition: { price: { amount: desiredPrice, currencyCode: "USD" } },
+                            rateDefinition: { price: { amount: desiredPrice, currencyCode } },
                           },
                         ],
                       },
@@ -199,7 +209,7 @@ async function ensureLocationRate(
                           id: found.id,
                           name: desiredName,
                           active: true,
-                          rateDefinition: { price: { amount: desiredPrice, currencyCode: "USD" } },
+                          rateDefinition: { price: { amount: desiredPrice, currencyCode } },
                         },
                       ],
                     },
@@ -216,10 +226,12 @@ async function ensureLocationRate(
 
   // Doesn't exist — create it on the first zone of the first location group
   const firstLg = profile.profileLocationGroups[0];
-  const firstZone = firstLg.locationGroupZones.nodes[0];
-  if (!firstLg || !firstZone) {
-    throw new Error("Default delivery profile has no shipping zones");
+  if (!firstLg || firstLg.locationGroupZones.nodes.length === 0) {
+    throw new Error(
+      `Default delivery profile has no shipping zones. Open Shopify Admin → Settings → Shipping and delivery and add at least one zone first.`,
+    );
   }
+  const firstZone = firstLg.locationGroupZones.nodes[0];
 
   const create = await shopifyGraphql<{
     deliveryProfileUpdate: {
@@ -249,7 +261,7 @@ async function ensureLocationRate(
                     name: desiredName,
                     description: `Pickup from ${location.name}`,
                     active: true,
-                    rateDefinition: { price: { amount: desiredPrice, currencyCode: "USD" } },
+                    rateDefinition: { price: { amount: desiredPrice, currencyCode } },
                   },
                 ],
               },
@@ -264,6 +276,9 @@ async function ensureLocationRate(
   if (errors.length > 0) {
     throw new Error(`Could not create rate for ${location.name}: ${errors.map((e) => e.message).join("; ")}`);
   }
+  if (create.errors && create.errors.length > 0) {
+    throw new Error(`GraphQL error creating rate for ${location.name}: ${create.errors.map((e) => e.message).join("; ")}`);
+  }
 
   // Re-fetch to find the new method definition ID
   const refreshed = await fetchPrimaryDeliveryProfile(shop, accessToken);
@@ -273,7 +288,7 @@ async function ensureLocationRate(
       if (found) return found.id;
     }
   }
-  return "";
+  throw new Error(`Created rate for ${location.name} but could not find its ID after creation. Check that the shipping zone allows this rate.`);
 }
 
 async function deleteRate(shop: string, accessToken: string, rateId: string) {
@@ -328,7 +343,8 @@ export async function syncLocationRate(shop: string, locationId: string): Promis
   }
 
   const profile = await fetchPrimaryDeliveryProfile(shop, accessToken);
-  const rateId = await ensureLocationRate(shop, accessToken, profile, location);
+  const currencyCode = await fetchShopCurrency(shop, accessToken);
+  const rateId = await ensureLocationRate(shop, accessToken, profile, currencyCode, location);
   if (rateId && rateId !== location.shopifyRateId) {
     await db.pickupLocation.update({ where: { id: locationId }, data: { shopifyRateId: rateId } });
   }
@@ -485,17 +501,37 @@ export async function runAutoSetup(shop: string, accessToken: string): Promise<S
   // Step 1: per-location shipping rates
   try {
     const profile = await fetchPrimaryDeliveryProfile(shop, accessToken);
+    const currencyCode = await fetchShopCurrency(shop, accessToken);
     const locations = await db.pickupLocation.findMany({ where: { shop, isActive: true } });
 
     let synced = 0;
+    const failures: string[] = [];
     for (const loc of locations) {
-      const rateId = await ensureLocationRate(shop, accessToken, profile, loc);
-      if (rateId && rateId !== loc.shopifyRateId) {
-        await db.pickupLocation.update({ where: { id: loc.id }, data: { shopifyRateId: rateId } });
+      try {
+        const rateId = await ensureLocationRate(shop, accessToken, profile, currencyCode, loc);
+        if (rateId) {
+          if (rateId !== loc.shopifyRateId) {
+            await db.pickupLocation.update({ where: { id: loc.id }, data: { shopifyRateId: rateId } });
+          }
+          synced++;
+        } else {
+          failures.push(`${loc.name}: rate creation returned no ID`);
+        }
+      } catch (locErr) {
+        failures.push(`${loc.name}: ${locErr instanceof Error ? locErr.message : String(locErr)}`);
       }
-      synced++;
     }
-    result.steps.locationRates = { ok: true, count: synced };
+
+    if (failures.length > 0) {
+      result.ok = false;
+      result.steps.locationRates = {
+        ok: false,
+        count: synced,
+        error: failures.join(" | "),
+      };
+    } else {
+      result.steps.locationRates = { ok: true, count: synced };
+    }
   } catch (e) {
     result.ok = false;
     result.steps.locationRates = { ok: false, error: e instanceof Error ? e.message : String(e) };
