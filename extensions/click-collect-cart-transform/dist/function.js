@@ -7,7 +7,7 @@ var __export = (target, all) => {
 // extensions/click-collect-cart-transform/src/index.js
 var src_exports = {};
 __export(src_exports, {
-  run: () => run
+  default: () => run
 });
 function run(input) {
   const isPickup = input.cart.pickupMethod?.value === "click_and_collect";

@@ -6,7 +6,7 @@
  * @param {RunInput} input
  * @returns {FunctionRunResult}
  */
-export function run(input) {
+export default function run(input) {
   const isPickup = input.cart.pickupMethod?.value === "click_and_collect";
 
   if (!isPickup) {
