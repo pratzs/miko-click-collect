@@ -120,12 +120,18 @@ function ClickCollectExtension() {
   const description = (settings.description as string) || "Skip the wait and collect your order from one of our pickup locations.";
   const checkboxLabel = (settings.checkbox_label as string) || "I will collect my order in-store";
 
+  // Restore the customer's previous selection from cart attributes — these persist
+  // across page refreshes and even navigation away/back to the checkout for the
+  // same cart, so "I picked pickup before" doesn't get forgotten.
+  const existingPickupMethod = cartAttributes?.find((a) => a.key === "miko_pickup_method")?.value ?? "";
+  const existingLocationId = cartAttributes?.find((a) => a.key === "miko_location_id")?.value ?? "";
+
   const [locations, setLocations] = useState<Location[]>([]);
   const [serviceFeeVariantId, setServiceFeeVariantId] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isClickCollect, setIsClickCollect] = useState(false);
-  const [selectedLocationId, setSelectedLocationId] = useState<string>("");
+  const [isClickCollect, setIsClickCollect] = useState(existingPickupMethod === "click_and_collect");
+  const [selectedLocationId, setSelectedLocationId] = useState<string>(existingLocationId);
   const cleanedRef = useRef(false);
 
   // Subtotal excluding the fee line itself — used for free-above calculation
@@ -149,35 +155,46 @@ function ClickCollectExtension() {
         const locs = data.locations ?? [];
         setLocations(locs);
         setServiceFeeVariantId(data.serviceFeeVariantId ?? "");
-        if (locs.length > 0) setSelectedLocationId(locs[0].id);
+        // Only auto-select the first location if no previous selection exists,
+        // or if the previously selected location no longer exists.
+        const prevStillValid = existingLocationId && locs.some((l) => l.id === existingLocationId);
+        if (!prevStillValid && locs.length > 0) {
+          setSelectedLocationId(locs[0].id);
+        }
       })
       .catch(() => setError("Could not load pickup locations."))
       .finally(() => setLoading(false));
-  }, [myshopifyDomain]);
+  }, [myshopifyDomain]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // On first mount, clear stale pickup state from previous sessions
+  // Reconcile any genuinely orphaned state on first mount.
+  // "Orphaned" = inconsistent state we can't honour. We do NOT touch state that
+  // reflects a deliberate customer selection — that must persist across refreshes.
   useEffect(() => {
     if (cleanedRef.current) return;
+    if (loading) return;                       // wait until locations are loaded
     cleanedRef.current = true;
 
-    const hasStaleAttrs = cartAttributes?.some(
-      (a) => a.key.startsWith("miko_") && a.value,
-    );
-    const staleFeeLines = cartLines.filter((l) =>
+    const feeLines = cartLines.filter((l) =>
       l.attributes?.some((a) => a.key === FEE_LINE_FLAG && a.value === "true"),
     );
 
-    if (hasStaleAttrs || staleFeeLines.length > 0) {
-      (async () => {
-        await applyAttributeChange({ type: "updateAttribute", key: "miko_pickup_method", value: "" });
-        await applyAttributeChange({ type: "updateAttribute", key: "miko_location_id", value: "" });
-        await applyAttributeChange({ type: "updateAttribute", key: "miko_location_name", value: "" });
-        for (const line of staleFeeLines) {
+    (async () => {
+      if (existingPickupMethod === "click_and_collect") {
+        // Customer previously selected pickup — make sure the fee line matches
+        // the current location/subtotal. Easiest correct path: re-sync as if
+        // they just toggled it on now.
+        const loc = locations.find((l) => l.id === selectedLocationId);
+        if (loc) {
+          await syncCartRef.current(true, loc.id, loc.name, loc);
+        }
+      } else if (feeLines.length > 0) {
+        // No pickup selected but fee lines exist → orphaned. Remove them.
+        for (const line of feeLines) {
           await applyCartLinesChange({ type: "removeCartLine", id: line.id, quantity: line.quantity });
         }
-      })();
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+      }
+    })();
+  }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const removeFeeLine = useCallback(async () => {
     if (feeLineIdRef.current) {
@@ -185,6 +202,10 @@ function ClickCollectExtension() {
       feeLineIdRef.current = null;
     }
   }, [applyCartLinesChange]);
+
+  const syncCartRef = useRef<(enabled: boolean, locId: string, locName: string, loc?: Location) => Promise<void>>(
+    async () => {},
+  );
 
   const syncCart = useCallback(
     async (enabled: boolean, locId: string, locName: string, loc?: Location) => {
@@ -222,6 +243,10 @@ function ClickCollectExtension() {
     },
     [applyAttributeChange, applyCartLinesChange, removeFeeLine, serviceFeeVariantId, subtotal],
   );
+
+  // Keep the syncCart ref pointing at the latest closure so out-of-band callers
+  // (mount-time reconciliation, etc.) always have the current syncCart logic.
+  syncCartRef.current = syncCart;
 
   // Recalculate the fee whenever cart subtotal changes (customer added/removed items
   // crossing the "free above $X" threshold)
