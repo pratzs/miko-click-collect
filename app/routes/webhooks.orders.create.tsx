@@ -17,7 +17,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     name: string;
     admin_graphql_api_id: string;
     note_attributes: Array<{ name: string; value: string }>;
-    line_items: Array<{ title: string; quantity: number; price: string; variant_title?: string }>;
+    line_items: Array<{
+      title: string;
+      quantity: number;
+      price: string;
+      variant_title?: string;
+      properties?: Array<{ name: string; value: string }>;
+    }>;
     total_price: string;
     currency: string;
     customer?: {
@@ -46,12 +52,21 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const customerEmail = order.customer?.email ?? order.email ?? "";
   const customerPhone = order.customer?.phone ?? order.billing_address?.phone ?? order.phone ?? "";
 
-  const lineItems = (order.line_items ?? []).map((li) => ({
-    title: li.variant_title ? `${li.title} - ${li.variant_title}` : li.title,
-    quantity: li.quantity,
-    price: li.price,
-    status: "confirmed",
-  }));
+  // Exclude our internal service fee line from the merchant-facing list —
+  // it's an automated charge, not something the merchant needs to pack
+  const lineItems = (order.line_items ?? [])
+    .filter(
+      (li) =>
+        !li.properties?.some(
+          (p) => p.name === "_miko_service_fee_line" && p.value === "true",
+        ),
+    )
+    .map((li) => ({
+      title: li.variant_title ? `${li.title} - ${li.variant_title}` : li.title,
+      quantity: li.quantity,
+      price: li.price,
+      status: "confirmed",
+    }));
 
   await db.clickCollectOrder.upsert({
     where: {
@@ -108,6 +123,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           },
         },
       );
+
+      // Auto-fulfill any service fee line item — it's a virtual fee, not a
+      // physical product, so the merchant shouldn't have to click "Mark as
+      // fulfilled" on it. Query fulfillment orders and fulfill the one
+      // containing the line tagged with _miko_service_fee_line.
+      await autoFulfillServiceFeeLine(admin, order.admin_graphql_api_id);
     } catch (e) {
       console.error("Failed to tag order:", e);
     }
@@ -115,3 +136,73 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   return json({ ok: true });
 };
+
+async function autoFulfillServiceFeeLine(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  admin: any,
+  orderGid: string,
+) {
+  // Find the fulfillment order(s) that contain our service fee line item
+  const res = await admin.graphql(
+    `query($id: ID!) {
+      order(id: $id) {
+        fulfillmentOrders(first: 10) {
+          nodes {
+            id
+            status
+            lineItems(first: 50) {
+              nodes {
+                id
+                lineItem {
+                  id
+                  customAttributes { key value }
+                }
+              }
+            }
+          }
+        }
+      }
+    }`,
+    { variables: { id: orderGid } },
+  );
+  const data = await res.json();
+  const fulfillmentOrders = data?.data?.order?.fulfillmentOrders?.nodes ?? [];
+
+  for (const fo of fulfillmentOrders) {
+    if (fo.status === "CLOSED") continue;
+
+    const feeLineItems = (fo.lineItems?.nodes ?? []).filter(
+      (foli: { lineItem: { customAttributes: Array<{ key: string; value: string }> } }) =>
+        foli.lineItem?.customAttributes?.some(
+          (a) => a.key === "_miko_service_fee_line" && a.value === "true",
+        ),
+    );
+    if (feeLineItems.length === 0) continue;
+
+    // Fulfill only fulfillment orders that consist ENTIRELY of our fee line
+    // (otherwise we'd auto-fulfill the real product the merchant needs to pack)
+    const allLines = fo.lineItems?.nodes ?? [];
+    if (feeLineItems.length !== allLines.length) continue;
+
+    try {
+      await admin.graphql(
+        `mutation fulfillmentCreate($fulfillment: FulfillmentInput!) {
+          fulfillmentCreate(fulfillment: $fulfillment) {
+            fulfillment { id }
+            userErrors { message }
+          }
+        }`,
+        {
+          variables: {
+            fulfillment: {
+              lineItemsByFulfillmentOrder: [{ fulfillmentOrderId: fo.id }],
+              notifyCustomer: false,
+            },
+          },
+        },
+      );
+    } catch (err) {
+      console.error("Auto-fulfill service fee line failed:", err);
+    }
+  }
+}

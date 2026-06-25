@@ -187,72 +187,58 @@ function OrderBlock() {
   const next = getNextStatus(order.status, order);
   const hasMultipleItems = order.lineItems.length > 1;
 
+  // Filter out any internal service-fee line so the merchant only sees real
+  // items they need to process. The fee is auto-fulfilled by the webhook.
+  const visibleLineItems = order.lineItems.filter((li) => {
+    const title = (li.title ?? "").toLowerCase();
+    return !title.includes("click and collect service fee");
+  });
+  const visibleHasMultiple = visibleLineItems.length > 1;
+
   return (
     <AdminBlock title="Click & Collect">
-      <BlockStack gap="base">
+      <BlockStack gap="tight">
         {message && <Banner tone={message.tone}>{message.text}</Banner>}
 
-        {/* Status */}
+        {/* Status + compact progress (single inline row) */}
         <InlineStack gap="base" blockAlignment="center">
           <Badge tone={STATUS_TONES[order.status] ?? "warning"}>
             {STATUS_LABELS[order.status] ?? order.status}
           </Badge>
-        </InlineStack>
-
-        {/* Progress steps */}
-        <InlineStack gap="tight" inlineAlignment="center">
-          {steps.map((step, i) => {
-            const done = i <= currentIdx;
-            const isCurrent = i === currentIdx;
-            return (
-              <BlockStack key={step.key} gap="extraTight" inlineAlignment="center">
-                <Text
-                  fontWeight={isCurrent ? "bold" : undefined}
-                  appearance={done ? undefined : "subdued"}
-                >
-                  {done ? "●" : "○"}
-                </Text>
-                <Text
-                  appearance={done ? undefined : "subdued"}
-                  fontWeight={isCurrent ? "bold" : undefined}
-                >
-                  {step.label}
-                </Text>
-              </BlockStack>
-            );
-          })}
+          <Text appearance="subdued">
+            Step {currentIdx + 1} of {steps.length}: {steps[currentIdx]?.label ?? "—"}
+          </Text>
         </InlineStack>
 
         <Divider />
 
         {/* Items with per-item status */}
-        {order.lineItems.length > 0 && (
-          <BlockStack gap="tight">
-            {order.lineItems.map((item, i) => {
+        {visibleLineItems.length > 0 && (
+          <BlockStack gap="extraTight">
+            {visibleLineItems.map((item, i) => {
               const itemStatus = item.status ?? order.status;
-              const itemNext = hasMultipleItems ? getNextStatus(itemStatus, order) : null;
+              const itemNext = visibleHasMultiple ? getNextStatus(itemStatus, order) : null;
               return (
-                <BlockStack key={i} gap="extraTight">
-                  <InlineStack gap="tight" blockAlignment="center">
-                    <Text>{item.title}</Text>
-                    <Text appearance="subdued">x{item.quantity}</Text>
-                  </InlineStack>
-                  {hasMultipleItems && (
-                    <InlineStack gap="tight" blockAlignment="center">
+                <InlineStack key={i} gap="tight" blockAlignment="center">
+                  <Text>
+                    {item.title} ×{item.quantity}
+                  </Text>
+                  {visibleHasMultiple && (
+                    <>
                       <Badge tone={STATUS_TONES[itemStatus] ?? "warning"}>
                         {STATUS_LABELS[itemStatus] ?? itemStatus}
                       </Badge>
                       {itemNext && (
                         <Button
-                          onPress={() => handleAdvanceItem(i, itemNext, item.title)}
-                          loading={actionLoading === `item-${i}`}
+                          onPress={() => handleAdvanceItem(order.lineItems.indexOf(item), itemNext, item.title)}
+                          loading={actionLoading === `item-${order.lineItems.indexOf(item)}`}
                         >
                           {NEXT_LABELS[itemNext]}
                         </Button>
                       )}
-                    </InlineStack>
+                    </>
                   )}
-                </BlockStack>
+                </InlineStack>
               );
             })}
           </BlockStack>
@@ -260,24 +246,23 @@ function OrderBlock() {
 
         <Divider />
 
-        {/* Location */}
-        <BlockStack gap="extraTight">
-          <Text fontWeight="bold">{order.locationName}</Text>
-          {order.locationAddress && <Text appearance="subdued">{order.locationAddress}</Text>}
-        </BlockStack>
-
-        {/* Advance All button */}
-        {next && (
-          <>
-            <Divider />
+        {/* Location + advance action on one row */}
+        <InlineStack gap="base" blockAlignment="center" inlineAlignment="space-between">
+          <BlockStack gap="extraTight">
+            <Text fontWeight="bold">{order.locationName}</Text>
+            {order.locationAddress && (
+              <Text appearance="subdued">{order.locationAddress}</Text>
+            )}
+          </BlockStack>
+          {next && (
             <Button
               onPress={() => handleAdvanceAll(next)}
               loading={actionLoading === "all"}
             >
-              {hasMultipleItems ? `${NEXT_LABELS[next]} (All Items)` : NEXT_LABELS[next] ?? "Next step"}
+              {visibleHasMultiple ? `${NEXT_LABELS[next]} (All)` : NEXT_LABELS[next] ?? "Next step"}
             </Button>
-          </>
-        )}
+          )}
+        </InlineStack>
 
         {order.status === "picked_up" && order.pickedUpAt && (
           <Text appearance="subdued">
