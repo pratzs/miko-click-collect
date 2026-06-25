@@ -79,7 +79,7 @@ async function ensureServiceFeeProduct(
   // Create the product fresh
   const create = await shopifyGraphql<{
     productCreate: {
-      product: { id: string; variants: { nodes: Array<{ id: string }> } } | null;
+      product: { id: string } | null;
       userErrors: Array<{ message: string }>;
     };
   }>(
@@ -87,10 +87,7 @@ async function ensureServiceFeeProduct(
     accessToken,
     `mutation productCreate($input: ProductInput!) {
       productCreate(input: $input) {
-        product {
-          id
-          variants(first: 1) { nodes { id } }
-        }
+        product { id }
         userErrors { message }
       }
     }`,
@@ -105,7 +102,6 @@ async function ensureServiceFeeProduct(
         descriptionHtml:
           "<p>This is an internal product used by the Click and Collect app to add packing or service fees to orders. " +
           "Do not delete or modify. It is hidden from your storefront.</p>",
-        published: false,
       },
     },
   );
@@ -116,12 +112,30 @@ async function ensureServiceFeeProduct(
   }
 
   const productId = create.data?.productCreate?.product?.id ?? "";
-  const variantId = create.data?.productCreate?.product?.variants.nodes[0]?.id ?? "";
-  if (!productId || !variantId) {
-    throw new Error("Service fee product was created but no ID was returned");
+  if (!productId) {
+    throw new Error("Service fee product was created but no product ID was returned");
   }
 
-  // Configure the variant: not taxable, no inventory tracking, no shipping
+  // Fetch the default variant ID separately (productCreate doesn't include variants in API 2026-04)
+  const variantQuery = await shopifyGraphql<{
+    product: { variants: { nodes: Array<{ id: string }> } } | null;
+  }>(
+    shop,
+    accessToken,
+    `query($id: ID!) {
+      product(id: $id) {
+        variants(first: 1) { nodes { id } }
+      }
+    }`,
+    { id: productId },
+  );
+
+  const variantId = variantQuery.data?.product?.variants.nodes[0]?.id ?? "";
+  if (!variantId) {
+    throw new Error("Service fee product was created but no variant was found");
+  }
+
+  // Configure the variant: $0 price, not taxable, no inventory tracking, no shipping
   await shopifyGraphql(
     shop,
     accessToken,
@@ -207,9 +221,17 @@ async function ensurePickupShippingRate(
     }`,
   );
 
-  const defaultProfile = profilesRes.data?.deliveryProfiles?.nodes?.find((p) => p.default);
+  const profiles = profilesRes.data?.deliveryProfiles?.nodes ?? [];
+  // Prefer the default profile, fall back to the first profile that has zones
+  const defaultProfile =
+    profiles.find((p) => p.default && p.profileLocationGroups?.length > 0) ??
+    profiles.find((p) => p.profileLocationGroups?.length > 0);
+
   if (!defaultProfile) {
-    throw new Error("No default delivery profile found on this store");
+    if (profiles.length === 0) {
+      throw new Error("This store has no delivery profiles. Add at least one shipping zone in Shopify Admin → Settings → Shipping and delivery.");
+    }
+    throw new Error("This store's delivery profile has no shipping zones. Add at least one shipping zone in Shopify Admin → Settings → Shipping and delivery.");
   }
 
   // Already has a rate matching our name? Reuse it.
