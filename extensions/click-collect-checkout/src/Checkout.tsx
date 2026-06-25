@@ -3,7 +3,9 @@ import {
   useShop,
   useSettings,
   useApplyAttributeChange,
+  useApplyCartLinesChange,
   useAttributes,
+  useCartLines,
   Banner,
   BlockStack,
   Checkbox,
@@ -14,6 +16,10 @@ import {
   SkeletonText,
 } from "@shopify/ui-extensions-react/checkout";
 import { useState, useEffect, useCallback, useRef } from "react";
+
+// Legacy attribute from earlier app versions that added a fee line item.
+// Any cart line carrying this flag is a leftover — we remove it on mount.
+const LEGACY_FEE_LINE_FLAG = "_miko_service_fee_line";
 
 type Location = {
   id: string;
@@ -93,8 +99,10 @@ export default reactExtension("purchase.checkout.delivery-address.render-before"
 function ClickCollectExtension() {
   const { myshopifyDomain } = useShop();
   const applyAttributeChange = useApplyAttributeChange();
+  const applyCartLinesChange = useApplyCartLinesChange();
   const settings = useSettings();
   const cartAttributes = useAttributes();
+  const cartLines = useCartLines();
 
   const heading = (settings.heading as string) || "Click & Collect";
   const description = (settings.description as string) || "Skip the wait and collect your order from one of our pickup locations.";
@@ -120,18 +128,27 @@ function ClickCollectExtension() {
       .finally(() => setLoading(false));
   }, [myshopifyDomain]);
 
-  // On first mount, clear any stale pickup state left over from a previous checkout session
+  // On first mount, clear stale pickup state AND remove any legacy service-fee line items
+  // left over from a previous version of the app
   useEffect(() => {
     if (cleanedRef.current) return;
     cleanedRef.current = true;
-    const hasStale = cartAttributes?.some(
+
+    const hasStaleAttrs = cartAttributes?.some(
       (a) => a.key.startsWith("miko_") && a.value,
     );
-    if (hasStale) {
+    const legacyFeeLines = cartLines.filter((l) =>
+      l.attributes?.some((a) => a.key === LEGACY_FEE_LINE_FLAG && a.value === "true"),
+    );
+
+    if (hasStaleAttrs || legacyFeeLines.length > 0) {
       (async () => {
         await applyAttributeChange({ type: "updateAttribute", key: "miko_pickup_method", value: "" });
         await applyAttributeChange({ type: "updateAttribute", key: "miko_location_id", value: "" });
         await applyAttributeChange({ type: "updateAttribute", key: "miko_location_name", value: "" });
+        for (const line of legacyFeeLines) {
+          await applyCartLinesChange({ type: "removeCartLine", id: line.id, quantity: line.quantity });
+        }
       })();
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
