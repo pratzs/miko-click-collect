@@ -23,11 +23,78 @@ import { db } from "../db.server";
 import { hasSmtp } from "../utils/plans";
 import { useAppBridge } from "@shopify/app-bridge-react";
 
+const FUNCTIONS_QUERY = `#graphql
+  {
+    shopifyFunctions(first: 25) {
+      nodes { id title apiType }
+    }
+  }
+`;
+
+const ENABLE_MUTATION = `#graphql
+  mutation deliveryCustomizationCreate($deliveryCustomization: DeliveryCustomizationInput!) {
+    deliveryCustomizationCreate(deliveryCustomization: $deliveryCustomization) {
+      deliveryCustomization { id }
+      userErrors { message }
+    }
+  }
+`;
+
+const DELETE_MUTATION = `#graphql
+  mutation deliveryCustomizationDelete($id: ID!) {
+    deliveryCustomizationDelete(id: $id) {
+      deletedId
+      userErrors { message }
+    }
+  }
+`;
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const shop = session.shop;
 
   const config = await db.shopConfig.findUnique({ where: { shop } });
+  let deliveryCustomizationId = config?.deliveryCustomizationId ?? "";
+
+  // Auto-refresh delivery customization when function ID changes after an app deploy
+  if (deliveryCustomizationId) {
+    try {
+      const fnRes = await admin.graphql(FUNCTIONS_QUERY);
+      const fnData = await fnRes.json();
+      const fns = fnData?.data?.shopifyFunctions?.nodes ?? [];
+      const fn = fns.find(
+        (f: { apiType: string; title: string }) =>
+          f.apiType === "delivery_customization" &&
+          f.title === "Click and Collect - Hide Shipping"
+      );
+      if (fn && fn.id !== (config?.deliveryCustomizationFunctionId ?? "")) {
+        // Function ID changed — delete old customization and recreate against new function
+        if (config?.deliveryCustomizationId) {
+          await admin.graphql(DELETE_MUTATION, { variables: { id: config.deliveryCustomizationId } }).catch(() => null);
+        }
+        const createRes = await admin.graphql(ENABLE_MUTATION, {
+          variables: {
+            deliveryCustomization: {
+              functionId: fn.id,
+              title: "Click and Collect - Hide Shipping",
+              enabled: true,
+            },
+          },
+        });
+        const createData = await createRes.json();
+        const newId = createData?.data?.deliveryCustomizationCreate?.deliveryCustomization?.id;
+        if (newId) {
+          await db.shopConfig.update({
+            where: { shop },
+            data: { deliveryCustomizationId: newId, deliveryCustomizationFunctionId: fn.id },
+          });
+          deliveryCustomizationId = newId;
+        }
+      }
+    } catch {
+      // Non-fatal — shipping waiver section still renders, user can manually re-enable
+    }
+  }
 
   return json({
     planName: config?.planName ?? "free",
@@ -47,7 +114,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     brandName: config?.brandName ?? "",
     useProcessingStep: config?.useProcessingStep ?? true,
     usePackingStep: config?.usePackingStep ?? true,
-    deliveryCustomizationId: config?.deliveryCustomizationId ?? "",
+    deliveryCustomizationId,
   });
 };
 

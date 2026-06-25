@@ -67,7 +67,8 @@ model ShopConfig {
   usePackingStep    Boolean @default(true)
 
   // Shopify Function IDs (set after first deploy)
-  deliveryCustomizationId String @default("")
+  deliveryCustomizationId         String @default("")
+  deliveryCustomizationFunctionId String @default("")
 
   // Subscription
   trialStartedAt          DateTime?

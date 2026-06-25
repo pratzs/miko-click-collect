@@ -128,11 +128,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     if (newId) {
       await db.shopConfig.update({
         where: { shop },
-        data: { deliveryCustomizationId: newId },
+        data: { deliveryCustomizationId: newId, deliveryCustomizationFunctionId: fn.id },
       });
     }
 
-    return json({ ok: true, id: newId });
+    return json({ ok: true, id: newId, functionId: fn.id });
   } catch (err) {
     // If authenticate.admin throws a redirect Response (re-auth), rethrow it
     if (err instanceof Response) throw err;
