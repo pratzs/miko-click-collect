@@ -4,8 +4,6 @@ import { useLoaderData, useNavigate } from "@remix-run/react";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import {
   Page,
-  Layout,
-  Card,
   BlockStack,
   InlineStack,
   Text,
@@ -15,9 +13,8 @@ import {
   Box,
   Banner,
   Icon,
-  List,
 } from "@shopify/polaris";
-import { CheckIcon } from "@shopify/polaris-icons";
+import { CheckIcon, EmailIcon } from "@shopify/polaris-icons";
 import { useState } from "react";
 import { authenticate } from "../shopify.server";
 import { db } from "../db.server";
@@ -55,117 +52,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   return json({ currentPlan: activePlan, plans: PLANS });
 };
 
-interface PlanCardProps {
-  planKey: string;
-  name: string;
-  price: number;
-  description: string;
-  features: string[];
-  isCurrent: boolean;
-  isPopular?: boolean;
-  currentPlan: string;
-  loading: string | null;
-  onSubscribe: (plan: string) => void;
-  onCancel: () => void;
-}
-
-function PlanCard({
-  planKey,
-  name,
-  price,
-  description,
-  features,
-  isCurrent,
-  isPopular,
-  currentPlan,
-  loading,
-  onSubscribe,
-  onCancel,
-}: PlanCardProps) {
-  const isUpgrade = price > (PLANS[currentPlan as keyof typeof PLANS]?.price ?? 0);
-
-  return (
-    <Card>
-      <BlockStack gap="400">
-        {/* Header */}
-        <BlockStack gap="200">
-          <InlineStack align="space-between" blockAlign="center">
-            <Text as="h2" variant="headingLg">{name}</Text>
-            <InlineStack gap="200">
-              {isPopular && !isCurrent && <Badge tone="info">Popular</Badge>}
-              {isCurrent && <Badge tone="success">Current plan</Badge>}
-            </InlineStack>
-          </InlineStack>
-
-          <InlineStack gap="100" blockAlign="baseline">
-            <Text as="p" variant="heading2xl">
-              {price === 0 ? "Free" : `$${price}`}
-            </Text>
-            {price > 0 && (
-              <Text as="span" tone="subdued">/month</Text>
-            )}
-          </InlineStack>
-
-          <Text as="p" tone="subdued">{description}</Text>
-        </BlockStack>
-
-        <Divider />
-
-        {/* Features */}
-        <BlockStack gap="300">
-          {features.map((f) => (
-            <InlineStack key={f} gap="200" blockAlign="start" wrap={false}>
-              <Box>
-                <div style={{ color: "#2C6ECB" }}>
-                  <Icon source={CheckIcon} />
-                </div>
-              </Box>
-              <Text as="p" variant="bodyMd">{f}</Text>
-            </InlineStack>
-          ))}
-        </BlockStack>
-
-        {/* Spacer to push button to bottom */}
-        <Box minHeight="0px" />
-
-        <Divider />
-
-        {/* Action button */}
-        {isCurrent ? (
-          <Button disabled fullWidth>
-            Current plan
-          </Button>
-        ) : planKey === "free" ? (
-          <Button
-            fullWidth
-            loading={loading === "cancel"}
-            onClick={onCancel}
-            tone="critical"
-          >
-            Downgrade to Free
-          </Button>
-        ) : (
-          <Button
-            variant="primary"
-            fullWidth
-            loading={loading === planKey}
-            onClick={() => onSubscribe(planKey)}
-          >
-            {isUpgrade
-              ? price > 0 && currentPlan === "free"
-                ? "Start 14-day free trial"
-                : `Upgrade to ${name}`
-              : `Switch to ${name}`}
-          </Button>
-        )}
-      </BlockStack>
-    </Card>
-  );
-}
-
-const PLAN_DETAILS: Record<string, { description: string; features: string[] }> = {
-  free: {
-    description: "Everything you need to get started with click & collect.",
+const PLAN_CARDS = [
+  {
+    key: "free",
+    name: "Free",
+    price: "$0",
+    period: "forever",
+    description: "Everything you need to get started with click and collect.",
     features: [
       "1 pickup location",
       "Up to 50 orders per month",
@@ -175,8 +68,13 @@ const PLAN_DETAILS: Record<string, { description: string; features: string[] }> 
       "Miko branding on emails",
     ],
   },
-  starter: {
-    description: "For growing stores that need more flexibility and control.",
+  {
+    key: "starter",
+    name: "Starter",
+    price: "$9.95",
+    period: "per month",
+    popular: true,
+    description: "For growing stores that need more flexibility and branding control.",
     features: [
       "Up to 3 pickup locations",
       "Up to 500 orders per month",
@@ -186,8 +84,12 @@ const PLAN_DETAILS: Record<string, { description: string; features: string[] }> 
       "Per-item status tracking",
     ],
   },
-  growth: {
-    description: "For high-volume stores with multiple locations.",
+  {
+    key: "growth",
+    name: "Growth",
+    price: "$29.95",
+    period: "per month",
+    description: "For high-volume stores with multiple locations and teams.",
     features: [
       "Unlimited pickup locations",
       "Unlimited orders",
@@ -197,10 +99,10 @@ const PLAN_DETAILS: Record<string, { description: string; features: string[] }> 
       "Advanced analytics (coming soon)",
     ],
   },
-};
+];
 
 export default function PricingPage() {
-  const { currentPlan, plans } = useLoaderData<typeof loader>();
+  const { currentPlan } = useLoaderData<typeof loader>();
   const shopify = useAppBridge();
   const navigate = useNavigate();
   const [loading, setLoading] = useState<string | null>(null);
@@ -208,7 +110,7 @@ export default function PricingPage() {
 
   async function handleCancel() {
     const confirmed = window.confirm(
-      "Downgrade to the Free plan? Your current features will be reduced. You can upgrade again any time.",
+      "Switch to the Free plan? Your current features will be reduced, but you can upgrade again any time.",
     );
     if (!confirmed) return;
     setLoading("cancel");
@@ -217,7 +119,7 @@ export default function PricingPage() {
       const token = await Promise.race([
         shopify.idToken(),
         new Promise<never>((_, rej) =>
-          setTimeout(() => rej(new Error("This is taking longer than expected. Please refresh the page and try again.")), 8000),
+          setTimeout(() => rej(new Error("This is taking a bit longer than expected. Please refresh the page and try again.")), 8000),
         ),
       ]);
       await fetch("/app/cancel", {
@@ -240,7 +142,7 @@ export default function PricingPage() {
       const token = await Promise.race([
         shopify.idToken(),
         new Promise<never>((_, rej) =>
-          setTimeout(() => rej(new Error("This is taking longer than expected. Please refresh the page and try again.")), 8000),
+          setTimeout(() => rej(new Error("This is taking a bit longer than expected. Please refresh the page and try again.")), 8000),
         ),
       ]);
       const res = await fetch(`/api/billing/subscribe?plan=${plan}`, {
@@ -259,10 +161,12 @@ export default function PricingPage() {
     }
   }
 
+  const currentPrice = PLANS[currentPlan as keyof typeof PLANS]?.price ?? 0;
+
   return (
     <Page
-      title="Plans & Pricing"
-      subtitle="Choose the plan that best fits your business. All paid plans include a 14-day free trial."
+      title="Plans and Pricing"
+      subtitle="Choose the plan that best suits your business. All paid plans include a 14-day free trial."
       backAction={{ content: "Dashboard", onAction: () => navigate("/app") }}
     >
       <BlockStack gap="600">
@@ -272,50 +176,160 @@ export default function PricingPage() {
           </Banner>
         )}
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px", alignItems: "stretch" }}>
-          {(["free", "starter", "growth"] as const).map((key) => {
-            const plan = plans[key];
-            const details = PLAN_DETAILS[key];
+        {/* Plan cards grid */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(3, 1fr)",
+            gap: "16px",
+          }}
+        >
+          {PLAN_CARDS.map((plan) => {
+            const isCurrent = currentPlan === plan.key;
+            const isUpgrade = (PLANS[plan.key as keyof typeof PLANS]?.price ?? 0) > currentPrice;
+
             return (
-              <div key={key} style={{ display: "flex", flexDirection: "column" }}>
-                <PlanCard
-                  planKey={key}
-                  name={plan.name}
-                  price={plan.price}
-                  description={details.description}
-                  features={details.features}
-                  isCurrent={currentPlan === key}
-                  isPopular={key === "starter"}
-                  currentPlan={currentPlan}
-                  loading={loading}
-                  onSubscribe={handleSubscribe}
-                  onCancel={handleCancel}
-                />
+              <div
+                key={plan.key}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  background: "var(--p-color-bg-surface)",
+                  borderRadius: "12px",
+                  border: plan.popular && !isCurrent
+                    ? "2px solid var(--p-color-border-interactive)"
+                    : "1px solid var(--p-color-border)",
+                  padding: "20px",
+                  position: "relative",
+                }}
+              >
+                {/* Header */}
+                <div style={{ marginBottom: "16px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                    <Text as="h2" variant="headingLg">{plan.name}</Text>
+                    {plan.popular && !isCurrent && <Badge tone="info">Popular</Badge>}
+                    {isCurrent && <Badge tone="success">Current plan</Badge>}
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "baseline", gap: "4px", marginBottom: "4px" }}>
+                    <Text as="p" variant="heading2xl">{plan.price}</Text>
+                    {plan.key !== "free" && (
+                      <Text as="span" tone="subdued">/{plan.period.replace("per ", "")}</Text>
+                    )}
+                  </div>
+
+                  <Text as="p" tone="subdued" variant="bodySm">{plan.description}</Text>
+                </div>
+
+                <Divider />
+
+                {/* Features */}
+                <div style={{ flex: 1, padding: "16px 0" }}>
+                  <BlockStack gap="300">
+                    {plan.features.map((f) => (
+                      <InlineStack key={f} gap="200" blockAlign="start" wrap={false}>
+                        <Box>
+                          <div style={{ color: "#2C6ECB" }}>
+                            <Icon source={CheckIcon} />
+                          </div>
+                        </Box>
+                        <Text as="p" variant="bodyMd">{f}</Text>
+                      </InlineStack>
+                    ))}
+                  </BlockStack>
+                </div>
+
+                <Divider />
+
+                {/* Action button */}
+                <div style={{ paddingTop: "16px" }}>
+                  {isCurrent ? (
+                    <Button disabled fullWidth>
+                      Current plan
+                    </Button>
+                  ) : plan.key === "free" ? (
+                    <Button
+                      fullWidth
+                      loading={loading === "cancel"}
+                      onClick={handleCancel}
+                      tone="critical"
+                    >
+                      Switch to Free
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="primary"
+                      fullWidth
+                      loading={loading === plan.key}
+                      onClick={() => handleSubscribe(plan.key)}
+                    >
+                      {isUpgrade && currentPlan === "free"
+                        ? "Start 14-day free trial"
+                        : isUpgrade
+                          ? `Upgrade to ${plan.name}`
+                          : `Switch to ${plan.name}`}
+                    </Button>
+                  )}
+                </div>
               </div>
             );
           })}
         </div>
 
-        <Card>
-          <BlockStack gap="200">
-            <Text as="h3" variant="headingSm">Frequently asked questions</Text>
+        {/* FAQ */}
+        <div
+          style={{
+            background: "var(--p-color-bg-surface)",
+            borderRadius: "12px",
+            border: "1px solid var(--p-color-border)",
+            padding: "20px",
+          }}
+        >
+          <BlockStack gap="400">
+            <Text as="h3" variant="headingMd">Frequently asked questions</Text>
             <Divider />
             <BlockStack gap="300">
               <BlockStack gap="100">
                 <Text as="p" fontWeight="semibold">Can I change plans at any time?</Text>
-                <Text as="p" tone="subdued">Yes. Upgrade, downgrade, or cancel whenever you like. When upgrading, you only pay the difference. When downgrading, your current billing cycle will be prorated.</Text>
+                <Text as="p" tone="subdued">Absolutely. You can upgrade, switch, or cancel whenever you like. When upgrading, you only pay the difference. When switching to a lower plan, your current billing cycle will be prorated.</Text>
               </BlockStack>
               <BlockStack gap="100">
-                <Text as="p" fontWeight="semibold">What happens when I hit my order limit?</Text>
-                <Text as="p" tone="subdued">New click & collect orders will still be created, but you will see a prompt to upgrade. Your existing orders and settings are never affected.</Text>
+                <Text as="p" fontWeight="semibold">What happens when I reach my order limit?</Text>
+                <Text as="p" tone="subdued">New click and collect orders will still come through, but you will see a prompt to upgrade. Your existing orders and settings are never affected.</Text>
               </BlockStack>
               <BlockStack gap="100">
                 <Text as="p" fontWeight="semibold">Is the 14-day trial really free?</Text>
-                <Text as="p" tone="subdued">Absolutely. You will not be charged during the trial period. Cancel any time before the trial ends and you will not be billed.</Text>
+                <Text as="p" tone="subdued">Yes, 100%. You will not be charged during the trial period. Cancel any time before the trial ends and you will not be billed at all.</Text>
               </BlockStack>
             </BlockStack>
           </BlockStack>
-        </Card>
+        </div>
+
+        {/* Contact support */}
+        <div
+          style={{
+            background: "var(--p-color-bg-surface)",
+            borderRadius: "12px",
+            border: "1px solid var(--p-color-border)",
+            padding: "20px",
+          }}
+        >
+          <InlineStack align="space-between" blockAlign="center">
+            <BlockStack gap="100">
+              <Text as="h3" variant="headingSm">Need help choosing the right plan?</Text>
+              <Text as="p" tone="subdued">
+                Our team is happy to help you find the best fit for your store.
+              </Text>
+            </BlockStack>
+            <Button
+              icon={EmailIcon}
+              url="mailto:hello@tripsterdevelopers.com?subject=Miko Click and Collect - Plan enquiry"
+              external
+            >
+              Contact support
+            </Button>
+          </InlineStack>
+        </div>
       </BlockStack>
     </Page>
   );

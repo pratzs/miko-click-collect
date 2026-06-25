@@ -274,7 +274,7 @@ function OrderBlock() {
               onPress={() => handleAdvanceAll(next)}
               loading={actionLoading === "all"}
             >
-              {hasMultipleItems ? `${NEXT_LABELS[next]} — All Items` : NEXT_LABELS[next] ?? "Next step"}
+              {hasMultipleItems ? `${NEXT_LABELS[next]} (All Items)` : NEXT_LABELS[next] ?? "Next step"}
             </Button>
           </>
         )}

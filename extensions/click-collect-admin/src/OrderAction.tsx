@@ -197,7 +197,7 @@ function OrderActionExtension() {
     <AdminAction
       title="Click & Collect"
       primaryAction={next ? {
-        title: hasMultipleItems ? `${NEXT_LABELS[next] ?? "Next step"} — All` : NEXT_LABELS[next] ?? "Next step",
+        title: hasMultipleItems ? `${NEXT_LABELS[next] ?? "Next step"} (All)` : NEXT_LABELS[next] ?? "Next step",
         onAction: () => handleAdvanceAll(next),
         loading: actionLoading === "all",
       } : null}

@@ -486,7 +486,7 @@ export default function OrderDetailPage() {
                       loading={isSubmitting}
                       onClick={() => openConfirmAll(orderNextStatus)}
                     >
-                      {NEXT_LABELS[orderNextStatus] ?? "Next step"} — All Items
+                      {NEXT_LABELS[orderNextStatus] ?? "Next step"} (All Items)
                     </Button>
                   )}
                   {order.status === "ready" && hasEmail && (
@@ -528,7 +528,7 @@ export default function OrderDetailPage() {
                       {order.readyAt && (
                         <Text variant="bodySm" tone="subdued" as="p">
                           Ready: {format(new Date(order.readyAt), "d MMM yyyy h:mm a")}
-                          {order.readyNotificationSentAt ? " — Customer notified" : ""}
+                          {order.readyNotificationSentAt ? " - Customer notified" : ""}
                         </Text>
                       )}
                       {order.pickedUpAt && (
@@ -691,7 +691,7 @@ export default function OrderDetailPage() {
           content: confirmAction
             ? confirmAction.intent === "advance_item"
               ? `${NEXT_LABELS[confirmAction.nextStatus] ?? "Confirm"}`
-              : `${NEXT_LABELS[confirmAction.nextStatus] ?? "Confirm"} — All`
+              : `${NEXT_LABELS[confirmAction.nextStatus] ?? "Confirm"} (All)`
             : "Confirm",
           onAction: doConfirm,
         }}
