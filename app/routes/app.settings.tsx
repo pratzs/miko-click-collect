@@ -1,6 +1,6 @@
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { useLoaderData, useFetcher } from "@remix-run/react";
+import { useLoaderData, useFetcher, useNavigate } from "@remix-run/react";
 import {
   Page,
   Layout,
@@ -87,6 +87,7 @@ export default function SettingsPage() {
   const data = useLoaderData<typeof loader>();
   const fetcher = useFetcher<{ ok?: boolean; message?: string }>();
   const shopify = useAppBridge();
+  const navigate = useNavigate();
   const [dcLoading, setDcLoading] = useState(false);
   const [dcStatus, setDcStatus] = useState<{ ok: boolean; msg: string } | null>(null);
   const [deliveryCustomizationId, setDeliveryCustomizationId] = useState(data.deliveryCustomizationId);
@@ -297,12 +298,13 @@ export default function SettingsPage() {
         <Layout.Section>
           <Card>
             <BlockStack gap="400">
-              <BlockStack gap="100">
+              <InlineGrid columns="1fr auto">
                 <Text variant="headingMd" as="h2">Shipping waiver</Text>
-                <Text as="p" tone="subdued">
-                  When enabled, any standard shipping rates are hidden at checkout when a customer selects in-store pickup. To use this feature you must first add a free "Click and Collect" shipping rate in your Shopify Admin under <strong>Settings → Shipping and delivery → Shipping rates → Add rate</strong> and name it something containing the word "Collect", "Pickup", or "Local" (e.g. "Click and Collect — Free"). That rate will remain visible; all paid shipping rates will be hidden.
-                </Text>
-              </BlockStack>
+                <Button variant="plain" onClick={() => navigate("/app/help")}>Setup guide</Button>
+              </InlineGrid>
+              <Text as="p" tone="subdued">
+                Hides paid shipping rates at checkout when a customer selects in-store pickup. Requires a free "Click and Collect" shipping rate to be added in <Text as="span" fontWeight="semibold">Shopify Admin → Settings → Shipping and delivery</Text> first — see the setup guide for full instructions.
+              </Text>
               {dcStatus && (
                 <Banner tone={dcStatus.ok ? "success" : "critical"} onDismiss={() => setDcStatus(null)}>
                   {dcStatus.msg}

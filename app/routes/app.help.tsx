@@ -161,6 +161,112 @@ export default function HelpPage() {
           </Card>
         </Layout.Section>
 
+        {/* Shipping waiver */}
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="400">
+              <InlineStack gap="200">
+                <Text as="h2" variant="headingMd">Shipping waiver</Text>
+                <Badge tone="success">Shopify Plus</Badge>
+              </InlineStack>
+              <Text as="p" tone="subdued">
+                The shipping waiver hides standard shipping rates at checkout when a customer selects in-store pickup — so they are not prompted to pay for delivery. It requires a one-time setup in both Shopify and the app.
+              </Text>
+
+              <Divider />
+
+              <BlockStack gap="200">
+                <Text as="h3" variant="headingSm">Step 1 — Add a free "Click and Collect" shipping rate in Shopify</Text>
+                <Text as="p" tone="subdued">
+                  Shopify requires at least one delivery option to be available for physical products. You need to create a $0 rate that the app keeps visible when pickup is selected, while all paid shipping rates are hidden.
+                </Text>
+                <List type="number">
+                  <List.Item>Go to <Text as="span" fontWeight="semibold">Shopify Admin → Settings → Shipping and delivery</Text></List.Item>
+                  <List.Item>Under your shipping profile, click <Text as="span" fontWeight="semibold">Add rate</Text></List.Item>
+                  <List.Item>Set the rate name to something containing the word <Text as="span" fontWeight="semibold">"Collect"</Text>, <Text as="span" fontWeight="semibold">"Pickup"</Text>, or <Text as="span" fontWeight="semibold">"Local"</Text> — for example: <Text as="span" fontWeight="semibold">Click and Collect — Free</Text></List.Item>
+                  <List.Item>Set the price to <Text as="span" fontWeight="semibold">$0.00</Text></List.Item>
+                  <List.Item>Click <Text as="span" fontWeight="semibold">Done</Text>, then <Text as="span" fontWeight="semibold">Save</Text></List.Item>
+                </List>
+                <Banner tone="info">
+                  The rate name must contain "Collect", "Pickup", or "Local" so the app knows to keep it visible. All other rates are hidden when the customer selects click and collect.
+                </Banner>
+              </BlockStack>
+
+              <Divider />
+
+              <BlockStack gap="200">
+                <Text as="h3" variant="headingSm">Step 2 — Enable the shipping waiver in the app</Text>
+                <List type="number">
+                  <List.Item>Go to <Text as="span" fontWeight="semibold">Settings</Text> in this app</List.Item>
+                  <List.Item>Scroll to the <Text as="span" fontWeight="semibold">Shipping waiver</Text> section</List.Item>
+                  <List.Item>Click <Text as="span" fontWeight="semibold">Enable shipping waiver</Text></List.Item>
+                  <List.Item>The status indicator turns green when active</List.Item>
+                </List>
+                <Banner tone="warning">
+                  If you re-install the app or change stores, you will need to enable the shipping waiver again — it is linked to your store session.
+                </Banner>
+              </BlockStack>
+
+              <Divider />
+
+              <BlockStack gap="200">
+                <Text as="h3" variant="headingSm">How it works at checkout</Text>
+                <Text as="p" tone="subdued">
+                  When a customer ticks "I will collect my order in-store":
+                </Text>
+                <List>
+                  <List.Item>All standard paid shipping rates (e.g. Standard — $8.00) are hidden</List.Item>
+                  <List.Item>Only the "Click and Collect — Free" rate remains visible</List.Item>
+                  <List.Item>If a location has a packing or service fee configured in the app, that fee is added to the product subtotal — not the shipping line</List.Item>
+                  <List.Item>The customer sees: subtotal (including any service fee) + $0 shipping = correct total</List.Item>
+                </List>
+              </BlockStack>
+
+              <Divider />
+
+              <BlockStack gap="200">
+                <Text as="h3" variant="headingSm">Service fees and the shipping waiver</Text>
+                <Text as="p" tone="subdued">
+                  Service fees (packing fees) are configured per location in the Locations page. They are charged separately from shipping — the fee is distributed across the product prices in the cart. This means:
+                </Text>
+                <List>
+                  <List.Item>The <Text as="span" fontWeight="semibold">"Click and Collect — Free" shipping rate should always be $0</Text> — do not put the service fee amount in the shipping rate price</List.Item>
+                  <List.Item>Configure the service fee amount in the location settings in this app instead</List.Item>
+                  <List.Item>The app handles distributing the fee correctly across line items</List.Item>
+                </List>
+                <Box padding="300" background="bg-surface-secondary" borderRadius="200">
+                  <BlockStack gap="100">
+                    <Text as="p" variant="bodySm" fontWeight="semibold">Example — Auckland Suburb Store with $6 packing fee:</Text>
+                    <Text as="p" variant="bodySm">Product: $48.00 → $54.00 (packing fee added to subtotal)</Text>
+                    <Text as="p" variant="bodySm">Shipping: Click and Collect — Free → $0.00</Text>
+                    <Text as="p" variant="bodySm" fontWeight="semibold">Total: $54.00 ✓</Text>
+                  </BlockStack>
+                </Box>
+              </BlockStack>
+
+              <Divider />
+
+              <BlockStack gap="200">
+                <Text as="h3" variant="headingSm">Troubleshooting</Text>
+                <List>
+                  <List.Item>
+                    <Text as="span" fontWeight="semibold">"Cannot be shipped to selected address" error</Text> — the free "Click and Collect" shipping rate is missing or not named correctly. Check Step 1 above.
+                  </List.Item>
+                  <List.Item>
+                    <Text as="span" fontWeight="semibold">Shipping still shows even with pickup selected</Text> — disable and re-enable the shipping waiver in Settings to refresh the connection to the delivery customisation function.
+                  </List.Item>
+                  <List.Item>
+                    <Text as="span" fontWeight="semibold">Service fee not appearing in cart total</Text> — make sure the location has a service fee configured in the Locations page and the customer has selected that location at checkout.
+                  </List.Item>
+                  <List.Item>
+                    <Text as="span" fontWeight="semibold">Feature not available</Text> — the shipping waiver requires a Shopify Plus store with the checkout extension installed.
+                  </List.Item>
+                </List>
+              </BlockStack>
+            </BlockStack>
+          </Card>
+        </Layout.Section>
+
         {/* Email notifications */}
         <Layout.Section>
           <Card>
@@ -278,6 +384,24 @@ export default function HelpPage() {
                 <Text as="p" fontWeight="semibold">How do I know an order is for pickup vs shipping?</Text>
                 <Text as="p" tone="subdued">
                   Click and collect orders are tagged "click-collect" in Shopify admin, have the pickup location in the order notes, and appear in the app&apos;s Orders page. Regular shipping orders are not affected.
+                </Text>
+              </BlockStack>
+
+              <Divider />
+
+              <BlockStack gap="200">
+                <Text as="p" fontWeight="semibold">Does the shipping waiver work automatically?</Text>
+                <Text as="p" tone="subdued">
+                  No — it requires a one-time setup. You must add a free "Click and Collect" shipping rate in Shopify Admin (Settings → Shipping and delivery), then enable the waiver in this app&apos;s Settings page. See the Shipping waiver section above for full instructions.
+                </Text>
+              </BlockStack>
+
+              <Divider />
+
+              <BlockStack gap="200">
+                <Text as="p" fontWeight="semibold">Can I charge a fee for click and collect?</Text>
+                <Text as="p" tone="subdued">
+                  Yes — configure a service fee per location in the Locations page. Do not put the fee amount in the "Click and Collect" shipping rate; always keep the shipping rate at $0. The app adds the service fee to the cart subtotal automatically.
                 </Text>
               </BlockStack>
             </BlockStack>
