@@ -266,30 +266,79 @@ export default function HelpPage() {
 
               <Divider />
 
-              <BlockStack gap="200">
-                <Text as="h3" variant="headingSm">Hide the service fee line in Shopify&apos;s order confirmation email</Text>
+              <BlockStack gap="300">
+                <Text as="h3" variant="headingSm">Customise Shopify&apos;s order confirmation email for pickup orders</Text>
                 <Text as="p" tone="subdued">
-                  Optional. Shopify&apos;s default order confirmation email lists every cart line, including our internal "Click and Collect Service Fee" line. To hide it:
+                  Optional, but recommended. By default Shopify&apos;s order confirmation email shows a generic shipping message and lists our internal service fee line. The three find-and-replace edits below give pickup customers a clear, pickup-specific email.
                 </Text>
-                <List type="number">
-                  <List.Item>
-                    Go to <Text as="span" fontWeight="semibold">Settings → Notifications → Order confirmation → Edit code</Text>
-                  </List.Item>
-                  <List.Item>
-                    Find the line item loop (it starts with <Text as="span" fontWeight="semibold">{`{% for line in subtotal_line_items %}`}</Text>)
-                  </List.Item>
-                  <List.Item>
-                    Right after that line, paste:
-                  </List.Item>
-                </List>
+                <Banner tone="info">
+                  Go to <Text as="span" fontWeight="semibold">Settings → Notifications → Order confirmation → Edit code</Text> and apply the three edits below in order. Click <Text as="span" fontWeight="semibold">Save</Text> when done.
+                </Banner>
+
+                <Divider />
+
+                {/* Edit 1 */}
+                <Text as="p" fontWeight="semibold">Edit 1 — Add pickup detection at the very top of the email body</Text>
+                <Text as="p" tone="subdued" variant="bodySm">
+                  Paste this at the very top of the email template (before the first <Text as="span" fontWeight="semibold">{`<html>`}</Text> or visible content). This reads our cart attributes once and stores them as variables you can use below.
+                </Text>
                 <Box padding="300" background="bg-surface-secondary" borderRadius="200">
                   <Text as="p" variant="bodySm">
-                    {`{%- if line.title contains "Click and Collect Service Fee" -%}{% continue %}{%- endif -%}`}
+                    {`{%- assign is_pickup = false -%}`}<br />
+                    {`{%- assign pickup_location = "" -%}`}<br />
+                    {`{%- for attr in attributes -%}`}<br />
+                    {`  {%- if attr.first == "miko_pickup_method" and attr.last == "click_and_collect" -%}{%- assign is_pickup = true -%}{%- endif -%}`}<br />
+                    {`  {%- if attr.first == "miko_location_name" -%}{%- assign pickup_location = attr.last -%}{%- endif -%}`}<br />
+                    {`{%- endfor -%}`}
                   </Text>
                 </Box>
+
+                <Divider />
+
+                {/* Edit 2 */}
+                <Text as="p" fontWeight="semibold">Edit 2 — Hide the service fee line from the items table</Text>
                 <Text as="p" tone="subdued" variant="bodySm">
-                  Save. The fee line is now hidden from the confirmation email; total still includes it.
+                  <Text as="span" fontWeight="semibold">Find</Text> this line:
                 </Text>
+                <Box padding="300" background="bg-surface-secondary" borderRadius="200">
+                  <Text as="p" variant="bodySm">{`{% for line in subtotal_line_items %}`}</Text>
+                </Box>
+                <Text as="p" tone="subdued" variant="bodySm">
+                  <Text as="span" fontWeight="semibold">Replace with</Text> (adds a skip-this-line guard immediately after the loop opens):
+                </Text>
+                <Box padding="300" background="bg-surface-secondary" borderRadius="200">
+                  <Text as="p" variant="bodySm">
+                    {`{% for line in subtotal_line_items %}`}<br />
+                    {`  {%- if line.title contains "Click and Collect Service Fee" -%}{% continue %}{%- endif -%}`}
+                  </Text>
+                </Box>
+
+                <Divider />
+
+                {/* Edit 3 */}
+                <Text as="p" fontWeight="semibold">Edit 3 — Show pickup instructions instead of the shipping message</Text>
+                <Text as="p" tone="subdued" variant="bodySm">
+                  <Text as="span" fontWeight="semibold">Find</Text> this line:
+                </Text>
+                <Box padding="300" background="bg-surface-secondary" borderRadius="200">
+                  <Text as="p" variant="bodySm">{`{% if requires_shipping %}`}</Text>
+                </Box>
+                <Text as="p" tone="subdued" variant="bodySm">
+                  <Text as="span" fontWeight="semibold">Replace with</Text> (inserts a pickup-specific branch before the existing shipping branch):
+                </Text>
+                <Box padding="300" background="bg-surface-secondary" borderRadius="200">
+                  <Text as="p" variant="bodySm">
+                    {`{% if is_pickup %}`}<br />
+                    {`  <p>Your order will be ready for collection at <strong>{{ pickup_location }}</strong>. We'll email you again when it's ready.</p>`}<br />
+                    {`{% elsif requires_shipping %}`}
+                  </Text>
+                </Box>
+
+                <Divider />
+
+                <Banner tone="success">
+                  Click <Text as="span" fontWeight="semibold">Save</Text>. Pickup orders will now show the location name and a clear collection message; regular shipping orders are unchanged. The service fee line is gone from the items table; totals still reflect the fee.
+                </Banner>
               </BlockStack>
             </BlockStack>
           </Card>
