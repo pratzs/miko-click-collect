@@ -269,26 +269,28 @@ export default function HelpPage() {
               <BlockStack gap="300">
                 <Text as="h3" variant="headingSm">Customise Shopify&apos;s order confirmation email for pickup orders</Text>
                 <Text as="p" tone="subdued">
-                  Optional, but recommended. By default Shopify&apos;s order confirmation email shows a generic shipping message and lists our internal service fee line. The three find-and-replace edits below give pickup customers a clear, pickup-specific email.
+                  Three small edits to Shopify&apos;s built-in order confirmation email. Pickup customers will see a clear pickup message with the location address instead of generic shipping copy, and our internal service fee line is hidden from the items list.
                 </Text>
                 <Banner tone="info">
-                  Go to <Text as="span" fontWeight="semibold">Settings → Notifications → Order confirmation → Edit code</Text> and apply the three edits below in order. Click <Text as="span" fontWeight="semibold">Save</Text> when done.
+                  Go to <Text as="span" fontWeight="semibold">Settings → Notifications → Order confirmation → Edit code</Text>. Apply the four edits below, then click <Text as="span" fontWeight="semibold">Save</Text>.
                 </Banner>
 
                 <Divider />
 
                 {/* Edit 1 */}
-                <Text as="p" fontWeight="semibold">Edit 1 — Add pickup detection at the very top of the email body</Text>
+                <Text as="p" fontWeight="semibold">Edit 1 — Detect pickup orders (paste at the very top of the template)</Text>
                 <Text as="p" tone="subdued" variant="bodySm">
-                  Paste this at the very top of the email template (before the first <Text as="span" fontWeight="semibold">{`<html>`}</Text> or visible content). This reads our cart attributes once and stores them as variables you can use below.
+                  Paste this block on the FIRST line of the template, above everything else. It reads our cart attributes once and exposes <Text as="span" fontWeight="semibold">is_miko_pickup</Text>, <Text as="span" fontWeight="semibold">miko_location_name</Text>, and <Text as="span" fontWeight="semibold">miko_location_id</Text> for use below.
                 </Text>
                 <Box padding="300" background="bg-surface-secondary" borderRadius="200">
                   <Text as="p" variant="bodySm">
-                    {`{%- assign is_pickup = false -%}`}<br />
-                    {`{%- assign pickup_location = "" -%}`}<br />
+                    {`{%- assign is_miko_pickup = false -%}`}<br />
+                    {`{%- assign miko_location_name = "" -%}`}<br />
+                    {`{%- assign miko_location_id = "" -%}`}<br />
                     {`{%- for attr in attributes -%}`}<br />
-                    {`  {%- if attr.first == "miko_pickup_method" and attr.last == "click_and_collect" -%}{%- assign is_pickup = true -%}{%- endif -%}`}<br />
-                    {`  {%- if attr.first == "miko_location_name" -%}{%- assign pickup_location = attr.last -%}{%- endif -%}`}<br />
+                    {`  {%- if attr.first == "miko_pickup_method" and attr.last == "click_and_collect" -%}{%- assign is_miko_pickup = true -%}{%- endif -%}`}<br />
+                    {`  {%- if attr.first == "miko_location_name" -%}{%- assign miko_location_name = attr.last -%}{%- endif -%}`}<br />
+                    {`  {%- if attr.first == "miko_location_id" -%}{%- assign miko_location_id = attr.last -%}{%- endif -%}`}<br />
                     {`{%- endfor -%}`}
                   </Text>
                 </Box>
@@ -296,15 +298,42 @@ export default function HelpPage() {
                 <Divider />
 
                 {/* Edit 2 */}
-                <Text as="p" fontWeight="semibold">Edit 2 — Hide the service fee line from the items table</Text>
+                <Text as="p" fontWeight="semibold">Edit 2 — Replace the shipping message in the email body</Text>
                 <Text as="p" tone="subdued" variant="bodySm">
-                  <Text as="span" fontWeight="semibold">Find</Text> this line:
+                  <Text as="span" fontWeight="semibold">Find</Text> this line (inside the <Text as="span" fontWeight="semibold">{`{% capture email_body %}`}</Text> block, near the top):
+                </Text>
+                <Box padding="300" background="bg-surface-secondary" borderRadius="200">
+                  <Text as="p" variant="bodySm">{`{% if requires_shipping %}`}</Text>
+                </Box>
+                <Text as="p" tone="subdued" variant="bodySm">
+                  <Text as="span" fontWeight="semibold">Replace with</Text>:
+                </Text>
+                <Box padding="300" background="bg-surface-secondary" borderRadius="200">
+                  <Text as="p" variant="bodySm">
+                    {`{% if is_miko_pickup %}`}<br />
+                    {`  <p>Hi {{ customer.first_name }}, your order will be ready for collection at <strong>{{ miko_location_name }}</strong>. We'll email you when it's ready to pick up.</p>`}<br />
+                    {`{% elsif requires_shipping %}`}
+                  </Text>
+                </Box>
+                <Text as="p" tone="subdued" variant="bodySm">
+                  The existing shipping branch stays intact below this — non-pickup orders read the same as before.
+                </Text>
+
+                <Divider />
+
+                {/* Edit 3 */}
+                <Text as="p" fontWeight="semibold">Edit 3 — Hide the service fee line from the items list</Text>
+                <Text as="p" tone="subdued" variant="bodySm">
+                  This template has the loop <Text as="span" fontWeight="semibold">{`{% for line in subtotal_line_items %}`}</Text> in TWO places (one for split-cart orders, one for single-delivery orders). Apply this edit BOTH times you find it.
+                </Text>
+                <Text as="p" tone="subdued" variant="bodySm">
+                  <Text as="span" fontWeight="semibold">Find</Text>:
                 </Text>
                 <Box padding="300" background="bg-surface-secondary" borderRadius="200">
                   <Text as="p" variant="bodySm">{`{% for line in subtotal_line_items %}`}</Text>
                 </Box>
                 <Text as="p" tone="subdued" variant="bodySm">
-                  <Text as="span" fontWeight="semibold">Replace with</Text> (adds a skip-this-line guard immediately after the loop opens):
+                  <Text as="span" fontWeight="semibold">Replace with</Text>:
                 </Text>
                 <Box padding="300" background="bg-surface-secondary" borderRadius="200">
                   <Text as="p" variant="bodySm">
@@ -315,29 +344,47 @@ export default function HelpPage() {
 
                 <Divider />
 
-                {/* Edit 3 */}
-                <Text as="p" fontWeight="semibold">Edit 3 — Show pickup instructions instead of the shipping message</Text>
+                {/* Edit 4 */}
+                <Text as="p" fontWeight="semibold">Edit 4 — Swap "Shipping address" for the pickup location card</Text>
                 <Text as="p" tone="subdued" variant="bodySm">
-                  <Text as="span" fontWeight="semibold">Find</Text> this line:
+                  In the "Customer information" section, the email shows a "Shipping address" block. For pickup orders we want to show the pickup location instead.
                 </Text>
-                <Box padding="300" background="bg-surface-secondary" borderRadius="200">
-                  <Text as="p" variant="bodySm">{`{% if requires_shipping %}`}</Text>
-                </Box>
                 <Text as="p" tone="subdued" variant="bodySm">
-                  <Text as="span" fontWeight="semibold">Replace with</Text> (inserts a pickup-specific branch before the existing shipping branch):
+                  <Text as="span" fontWeight="semibold">Find</Text>:
                 </Text>
                 <Box padding="300" background="bg-surface-secondary" borderRadius="200">
                   <Text as="p" variant="bodySm">
-                    {`{% if is_pickup %}`}<br />
-                    {`  <p>Your order will be ready for collection at <strong>{{ pickup_location }}</strong>. We'll email you again when it's ready.</p>`}<br />
-                    {`{% elsif requires_shipping %}`}
+                    {`{% if requires_shipping and shipping_address %}`}<br />
+                    {`  <td class="customer-info__item">`}<br />
+                    {`    <h4>Shipping address</h4>`}<br />
+                    {`    {{ shipping_address | format_address }}`}<br />
+                    {`  </td>`}<br />
+                    {`{% endif %}`}
+                  </Text>
+                </Box>
+                <Text as="p" tone="subdued" variant="bodySm">
+                  <Text as="span" fontWeight="semibold">Replace with</Text>:
+                </Text>
+                <Box padding="300" background="bg-surface-secondary" borderRadius="200">
+                  <Text as="p" variant="bodySm">
+                    {`{% if is_miko_pickup %}`}<br />
+                    {`  <td class="customer-info__item">`}<br />
+                    {`    <h4>Pickup location</h4>`}<br />
+                    {`    <p><strong>{{ miko_location_name }}</strong></p>`}<br />
+                    {`  </td>`}<br />
+                    {`{% elsif requires_shipping and shipping_address %}`}<br />
+                    {`  <td class="customer-info__item">`}<br />
+                    {`    <h4>Shipping address</h4>`}<br />
+                    {`    {{ shipping_address | format_address }}`}<br />
+                    {`  </td>`}<br />
+                    {`{% endif %}`}
                   </Text>
                 </Box>
 
                 <Divider />
 
                 <Banner tone="success">
-                  Click <Text as="span" fontWeight="semibold">Save</Text>. Pickup orders will now show the location name and a clear collection message; regular shipping orders are unchanged. The service fee line is gone from the items table; totals still reflect the fee.
+                  Click <Text as="span" fontWeight="semibold">Save</Text>. Pickup customers now get: a clear "ready for collection" message at the top, a "Pickup location" card with the store name (instead of "Shipping address"), and a clean items list without the internal service fee line. Order total still includes the fee. Regular shipping orders are completely unchanged.
                 </Banner>
               </BlockStack>
             </BlockStack>
