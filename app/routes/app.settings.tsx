@@ -101,15 +101,21 @@ export default function SettingsPage() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ action: "enable" }),
       });
-      const json = await res.json() as { ok: boolean; id?: string; error?: string };
-      if (json.ok) {
-        setDeliveryCustomizationId(json.id ?? "enabled");
+      let result: { ok: boolean; id?: string; error?: string } = { ok: false };
+      try {
+        result = await res.json();
+      } catch {
+        setDcStatus({ ok: false, msg: `HTTP ${res.status} - unexpected response. The route may not be deployed yet. Refresh and try again.` });
+        return;
+      }
+      if (result.ok) {
+        setDeliveryCustomizationId(result.id ?? "enabled");
         setDcStatus({ ok: true, msg: "Shipping waiver enabled. Customers who select click and collect will not see shipping options." });
       } else {
-        setDcStatus({ ok: false, msg: json.error ?? "Failed to enable. Make sure you have deployed the app extensions." });
+        setDcStatus({ ok: false, msg: result.error ?? "Failed to enable. Make sure you have deployed the app extensions." });
       }
     } catch (e) {
-      setDcStatus({ ok: false, msg: "Network error. Please try again." });
+      setDcStatus({ ok: false, msg: `Error: ${e instanceof Error ? e.message : String(e)}` });
     }
     setDcLoading(false);
   }
