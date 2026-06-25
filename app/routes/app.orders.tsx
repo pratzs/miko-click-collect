@@ -131,7 +131,7 @@ export default function OrdersPage() {
   }));
 
   return (
-    <Page title="Click & Collect Orders">
+    <Page title="Click and Collect Orders">
       <Layout>
         <Layout.Section>
           <Card padding="0">

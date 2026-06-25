@@ -27,6 +27,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 export default function HelpPage() {
   const { shopHandle } = useLoaderData<typeof loader>();
 
+  function openSupport() {
+    const href = `mailto:hello@tripsterdevelopers.com?subject=${encodeURIComponent("Miko Click and Collect - Support enquiry")}`;
+    try {
+      const top = window.top || window;
+      top.location.href = href;
+    } catch {
+      window.open(href, "_blank");
+    }
+  }
+
   return (
     <Page title="Help and Setup Guide" subtitle="Everything you need to get click and collect up and running">
       <Layout>
@@ -284,11 +294,7 @@ export default function HelpPage() {
                   Our team is based in New Zealand and happy to help with setup or any questions.
                 </Text>
               </BlockStack>
-              <Button
-                icon={EmailIcon}
-                url="mailto:hello@tripsterdevelopers.com?subject=Miko Click and Collect - Support enquiry"
-                external
-              >
+              <Button icon={EmailIcon} onClick={openSupport}>
                 Contact support
               </Button>
             </InlineStack>

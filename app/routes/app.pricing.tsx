@@ -96,7 +96,7 @@ const PLAN_CARDS = [
       "Everything in Starter",
       "Priority support",
       "Multi-step order workflow",
-      "Advanced analytics (coming soon)",
+      "Analytics dashboard",
     ],
   },
 ];
@@ -107,6 +107,16 @@ export default function PricingPage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  function openSupport() {
+    const href = `mailto:hello@tripsterdevelopers.com?subject=${encodeURIComponent("Miko Click and Collect - Plan enquiry")}`;
+    try {
+      const top = window.top || window;
+      top.location.href = href;
+    } catch {
+      window.open(href, "_blank");
+    }
+  }
 
   async function handleCancel() {
     const confirmed = window.confirm(
@@ -321,11 +331,7 @@ export default function PricingPage() {
                 Our team is happy to help you find the best fit for your store.
               </Text>
             </BlockStack>
-            <Button
-              icon={EmailIcon}
-              url="mailto:hello@tripsterdevelopers.com?subject=Miko Click and Collect - Plan enquiry"
-              external
-            >
+            <Button icon={EmailIcon} onClick={openSupport}>
               Contact support
             </Button>
           </InlineStack>

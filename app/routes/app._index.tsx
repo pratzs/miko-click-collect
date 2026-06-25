@@ -177,7 +177,7 @@ export default function DashboardPage() {
   // Phase 1: fresh install -nothing set up
   if (!step1Done) {
     return (
-      <Page title="Welcome to Miko Click & Collect">
+      <Page title="Welcome to Miko Click and Collect">
         <Layout>
           <Layout.Section>
             <div
@@ -206,7 +206,7 @@ export default function DashboardPage() {
                 <BlockStack gap="100">
                   <Text as="h2" variant="headingMd">Setup guide</Text>
                   <Text as="p" variant="bodySm" tone="subdued">
-                    Complete these steps to get click &amp; collect live. Takes about 5 minutes.
+                    Complete these steps to get click and collect live. Takes about 5 minutes.
                   </Text>
                 </BlockStack>
                 <BlockStack gap="200">
@@ -221,7 +221,7 @@ export default function DashboardPage() {
                   <StepRow
                     n={2}
                     title="Add the extension to your checkout"
-                    description="Open the checkout editor and add the Click & Collect block. See the Help page for detailed steps."
+                    description="Open the checkout editor and add the Click and Collect block. See the Help page for detailed steps."
                     cta="Open checkout editor"
                     done={false}
                     onAction={openCheckoutEditor}
@@ -268,7 +268,7 @@ export default function DashboardPage() {
   // Phase 2+: location exists, show onboarding steps if not all done + dashboard
   return (
     <Page
-      title="Miko Click & Collect"
+      title="Miko Click and Collect"
       subtitle="Manage in-store pickup for your Shopify store"
       primaryAction={
         pendingCount > 0
@@ -276,7 +276,7 @@ export default function DashboardPage() {
           : { content: "View all orders", onAction: () => navigate("/app/orders") }
       }
       secondaryActions={[
-        { content: "Help & setup guide", onAction: () => navigate("/app/help") },
+        { content: "Help and setup guide", onAction: () => navigate("/app/help") },
       ]}
     >
       <Layout>
@@ -302,8 +302,8 @@ export default function DashboardPage() {
                   />
                   <StepRow
                     n={2}
-                    title="Place a test order with click & collect"
-                    description={step2Done ? `${totalOrderCount} click & collect order${totalOrderCount !== 1 ? "s" : ""} received.` : "Go through checkout and select 'I will collect my order in-store' to verify everything works."}
+                    title="Place a test order with click and collect"
+                    description={step2Done ? `${totalOrderCount} click and collect order${totalOrderCount !== 1 ? "s" : ""} received.` : "Go through checkout and select 'I will collect my order in-store' to verify everything works."}
                     cta={step2Done ? "View orders" : "View store"}
                     done={step2Done}
                     onAction={step2Done ? () => navigate("/app/orders") : openStorefront}
@@ -372,7 +372,7 @@ export default function DashboardPage() {
               {recentOrders.length === 0 ? (
                 <Box padding="600">
                   <BlockStack gap="200" align="center">
-                    <Text as="p" tone="subdued" alignment="center">No click &amp; collect orders yet.</Text>
+                    <Text as="p" tone="subdued" alignment="center">No click and collect orders yet.</Text>
                     <Text as="p" tone="subdued" alignment="center">
                       Orders appear here when customers choose in-store pickup at checkout.
                     </Text>
@@ -436,6 +436,18 @@ export default function DashboardPage() {
                 )}
               </BlockStack>
             </Card>
+
+            {planName === "growth" && (
+              <Card>
+                <BlockStack gap="300">
+                  <Text variant="headingMd" as="h2">Analytics</Text>
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    View order trends, collection times, and location performance.
+                  </Text>
+                  <Button onClick={() => navigate("/app/analytics")}>View analytics</Button>
+                </BlockStack>
+              </Card>
+            )}
 
             {!hasEmailConfig && (
               <Card>
