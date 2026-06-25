@@ -9,25 +9,33 @@ var src_exports = {};
 __export(src_exports, {
   default: () => run
 });
-var PICKUP_KEYWORDS = /pickup|collect|in.?store|local/i;
+var RATE_PREFIX = "Click and Collect";
 function run(input) {
-  const isPickup = input.cart.pickupMethod?.value === "click_and_collect";
   const allGroups = input.cart.deliveryGroups ?? [];
-  if (isPickup) {
-    const hasPickupRate = allGroups.some(
-      (group) => group.deliveryOptions.some((opt) => PICKUP_KEYWORDS.test(opt.title ?? ""))
-    );
-    if (!hasPickupRate) return { operations: [] };
-    const operations = allGroups.flatMap(
-      (group) => group.deliveryOptions.filter((opt) => !PICKUP_KEYWORDS.test(opt.title ?? "")).map((opt) => ({ hide: { deliveryOptionHandle: opt.handle } }))
-    );
-    return { operations };
-  } else {
-    const operations = allGroups.flatMap(
-      (group) => group.deliveryOptions.filter((opt) => PICKUP_KEYWORDS.test(opt.title ?? "")).map((opt) => ({ hide: { deliveryOptionHandle: opt.handle } }))
-    );
-    return { operations };
+  const isPickup = input.cart.pickupMethod?.value === "click_and_collect";
+  const selectedLocationName = input.cart.locationName?.value ?? "";
+  const operations = [];
+  for (const group of allGroups) {
+    for (const opt of group.deliveryOptions) {
+      const title = opt.title ?? "";
+      const isPickupRate = title.startsWith(RATE_PREFIX);
+      if (isPickup) {
+        if (isPickupRate) {
+          const expectedName = `${RATE_PREFIX} - ${selectedLocationName}`;
+          if (title !== expectedName) {
+            operations.push({ hide: { deliveryOptionHandle: opt.handle } });
+          }
+        } else {
+          operations.push({ hide: { deliveryOptionHandle: opt.handle } });
+        }
+      } else {
+        if (isPickupRate) {
+          operations.push({ hide: { deliveryOptionHandle: opt.handle } });
+        }
+      }
+    }
   }
+  return { operations };
 }
 
 // extensions/click-collect-delivery-customization/node_modules/@shopify/shopify_function/run.ts

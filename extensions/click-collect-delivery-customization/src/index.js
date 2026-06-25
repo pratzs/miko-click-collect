@@ -1,30 +1,36 @@
-const PICKUP_KEYWORDS = /pickup|collect|in.?store|local/i;
+const RATE_PREFIX = "Click and Collect"; // matches rate names auto-created by the app
 
 export default function run(input) {
-  const isPickup = input.cart.pickupMethod?.value === "click_and_collect";
   const allGroups = input.cart.deliveryGroups ?? [];
+  const isPickup = input.cart.pickupMethod?.value === "click_and_collect";
+  const selectedLocationName = input.cart.locationName?.value ?? "";
 
-  if (isPickup) {
-    // Pickup selected: keep only the free pickup rate, hide all paid shipping rates.
-    // If no pickup rate exists yet, show everything (graceful degradation).
-    const hasPickupRate = allGroups.some((group) =>
-      group.deliveryOptions.some((opt) => PICKUP_KEYWORDS.test(opt.title ?? ""))
-    );
-    if (!hasPickupRate) return { operations: [] };
+  const operations = [];
 
-    const operations = allGroups.flatMap((group) =>
-      group.deliveryOptions
-        .filter((opt) => !PICKUP_KEYWORDS.test(opt.title ?? ""))
-        .map((opt) => ({ hide: { deliveryOptionHandle: opt.handle } }))
-    );
-    return { operations };
-  } else {
-    // Normal shipping: hide the pickup-only rate so it never shows for regular orders.
-    const operations = allGroups.flatMap((group) =>
-      group.deliveryOptions
-        .filter((opt) => PICKUP_KEYWORDS.test(opt.title ?? ""))
-        .map((opt) => ({ hide: { deliveryOptionHandle: opt.handle } }))
-    );
-    return { operations };
+  for (const group of allGroups) {
+    for (const opt of group.deliveryOptions) {
+      const title = opt.title ?? "";
+      const isPickupRate = title.startsWith(RATE_PREFIX);
+
+      if (isPickup) {
+        if (isPickupRate) {
+          // Show only the rate for the selected location
+          const expectedName = `${RATE_PREFIX} - ${selectedLocationName}`;
+          if (title !== expectedName) {
+            operations.push({ hide: { deliveryOptionHandle: opt.handle } });
+          }
+        } else {
+          // Hide all non-pickup rates when pickup is selected
+          operations.push({ hide: { deliveryOptionHandle: opt.handle } });
+        }
+      } else {
+        // Hide all pickup rates when pickup is NOT selected
+        if (isPickupRate) {
+          operations.push({ hide: { deliveryOptionHandle: opt.handle } });
+        }
+      }
+    }
   }
+
+  return { operations };
 }

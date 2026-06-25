@@ -20,6 +20,7 @@ import {
 import { useState } from "react";
 import { authenticate } from "../shopify.server";
 import { db } from "../db.server";
+import { syncLocationRate, deleteLocationRate } from "../utils/auto-setup.server";
 
 const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 const DAY_LABELS: Record<string, string> = {
@@ -77,7 +78,13 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   const intent = form.get("intent") as string;
 
   if (intent === "delete") {
+    const loc = await db.pickupLocation.findUnique({ where: { id: id! } });
     await db.pickupLocation.deleteMany({ where: { id: id!, shop } });
+    if (loc) {
+      await deleteLocationRate(shop, loc.shopifyRateId, loc.name).catch((err) => {
+        console.error("[location-rate-delete]", err);
+      });
+    }
     return redirect("/app/locations");
   }
 
@@ -110,11 +117,19 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     serviceFeeLabel: (form.get("serviceFeeLabel") as string) || "",
   };
 
+  let savedId: string;
   if (id === "new") {
-    await db.pickupLocation.create({ data });
+    const created = await db.pickupLocation.create({ data });
+    savedId = created.id;
   } else {
     await db.pickupLocation.updateMany({ where: { id, shop }, data });
+    savedId = id!;
   }
+
+  // Sync the Shopify shipping rate for this location (idempotent, runs in background)
+  syncLocationRate(shop, savedId).catch((err) => {
+    console.error("[location-rate-sync]", err);
+  });
 
   return redirect("/app/locations");
 };

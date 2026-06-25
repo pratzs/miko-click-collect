@@ -58,9 +58,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     setup: {
       completed: !!config?.setupCompletedAt,
       error: config?.setupError ?? "",
-      serviceFeeVariantId: config?.serviceFeeVariantId ?? "",
-      pickupShippingRateId: config?.pickupShippingRateId ?? "",
       deliveryCustomizationId: config?.deliveryCustomizationId ?? "",
+      locationCount: await db.pickupLocation.count({ where: { shop, isActive: true } }),
+      ratedLocationCount: await db.pickupLocation.count({
+        where: { shop, isActive: true, NOT: { shopifyRateId: "" } },
+      }),
     },
   });
 };
@@ -117,11 +119,9 @@ export default function SettingsPage() {
       const result = await res.json();
       if (result.ok) {
         setSetup({
+          ...setup,
           completed: true,
           error: "",
-          serviceFeeVariantId: setup.serviceFeeVariantId,
-          pickupShippingRateId: setup.pickupShippingRateId,
-          deliveryCustomizationId: setup.deliveryCustomizationId,
         });
         setSetupMsg({ ok: true, msg: "Setup re-run successfully. Everything is wired up." });
       } else {
@@ -307,8 +307,14 @@ export default function SettingsPage() {
               )}
 
               <BlockStack gap="200">
-                <SetupRow ok={!!setup.serviceFeeVariantId} label="Hidden service fee product created" />
-                <SetupRow ok={!!setup.pickupShippingRateId} label="Free 'Click and Collect' shipping rate added" />
+                <SetupRow
+                  ok={setup.locationCount > 0 && setup.ratedLocationCount === setup.locationCount}
+                  label={
+                    setup.locationCount === 0
+                      ? "Pickup locations created (add at least one)"
+                      : `Shipping rates synced for ${setup.ratedLocationCount}/${setup.locationCount} pickup locations`
+                  }
+                />
                 <SetupRow ok={!!setup.deliveryCustomizationId} label="Shipping waiver active (hides paid rates on pickup orders)" />
               </BlockStack>
 

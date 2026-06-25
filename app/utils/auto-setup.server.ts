@@ -1,23 +1,29 @@
 /**
- * Auto-setup runs once per shop on first auth (or via the "Re-run setup" button).
+ * Auto-setup creates everything in the merchant's Shopify store that's needed
+ * for Click and Collect to "just work" — no manual configuration required.
  *
- * Creates everything the merchant needs to use Click and Collect without any manual work:
- *   1. Hidden "Click and Collect Service Fee" product (used as a line item for packing fees)
- *   2. Free "Click and Collect" shipping rate on the default delivery profile
- *   3. Delivery customisation linked to the latest Shopify Function version
+ * Design: one Shopify shipping rate per pickup location.
+ *   - Location with no fee   → "Click and Collect - {Name}" @ $0
+ *   - Location with a fee    → "Click and Collect - {Name}" @ ${fee}
  *
- * All steps are idempotent — safe to re-run.
+ * The delivery customisation function then shows ONLY the rate matching the
+ * customer's selected location (and hides all paid shipping rates), and hides
+ * every "Click and Collect - *" rate when pickup is NOT selected.
+ *
+ * Benefits:
+ *   - No fake fee product, no product-availability errors at checkout
+ *   - Tax is handled natively by Shopify per-rate
+ *   - Fees are visible as part of standard shipping line, not a mysterious item
+ *
+ * All steps are idempotent.
  */
 
 import { db } from "../db.server";
 
 const API_VERSION = "2026-04";
-
-const SERVICE_FEE_PRODUCT_TITLE = "Click and Collect Service Fee";
-const SERVICE_FEE_PRODUCT_HANDLE = "miko-click-collect-service-fee";
-const PICKUP_RATE_NAME = "Click and Collect - Free";
 const DELIVERY_CUSTOMIZATION_TITLE = "Click and Collect - Hide Shipping";
 const FUNCTION_TITLE = "Click and Collect - Hide Shipping";
+const RATE_PREFIX = "Click and Collect"; // rate titles are "Click and Collect - {location name}"
 
 type ShopifyGraphQLResponse<T> = { data?: T; errors?: Array<{ message: string }> };
 
@@ -38,200 +44,44 @@ async function shopifyGraphql<T>(
   return (await res.json()) as ShopifyGraphQLResponse<T>;
 }
 
-/* ===== Step 1: Service fee product ===== */
+function rateNameForLocation(name: string): string {
+  return `${RATE_PREFIX} - ${name}`;
+}
 
-async function ensureServiceFeeProduct(
-  shop: string,
-  accessToken: string,
-  existingVariantId: string,
-): Promise<{ productId: string; variantId: string }> {
-  // If we already have an ID, verify it still exists and ensure it's published
-  if (existingVariantId) {
-    const verify = await shopifyGraphql<{ productVariant: { id: string; product: { id: string } } | null }>(
-      shop,
-      accessToken,
-      `query($id: ID!) { productVariant(id: $id) { id product { id } } }`,
-      { id: existingVariantId },
-    );
-    if (verify.data?.productVariant?.id) {
-      const productId = verify.data.productVariant.product.id;
-      // Re-publish on every setup run — fixes "Unavailable product" if publication was lost
-      await publishProductEverywhere(shop, accessToken, productId);
-      return { productId, variantId: verify.data.productVariant.id };
-    }
-  }
+/* ===== Cleanup: remove any service fee product from older app versions ===== */
 
-  // Look for an existing product by handle (in case the merchant or a previous install made one)
-  const lookup = await shopifyGraphql<{
-    productByHandle: { id: string; variants: { nodes: Array<{ id: string }> } } | null;
-  }>(
-    shop,
-    accessToken,
-    `query { productByHandle(handle: "${SERVICE_FEE_PRODUCT_HANDLE}") { id variants(first: 1) { nodes { id } } } }`,
-  );
-
-  if (lookup.data?.productByHandle?.id) {
-    const productId = lookup.data.productByHandle.id;
-    const variantId = lookup.data.productByHandle.variants.nodes[0]?.id ?? "";
-    if (variantId) {
-      await publishProductEverywhere(shop, accessToken, productId);
-      return { productId, variantId };
-    }
-  }
-
-  // Create the product fresh
-  const create = await shopifyGraphql<{
-    productCreate: {
-      product: { id: string } | null;
-      userErrors: Array<{ message: string }>;
-    };
-  }>(
-    shop,
-    accessToken,
-    `mutation productCreate($input: ProductInput!) {
-      productCreate(input: $input) {
-        product { id }
-        userErrors { message }
-      }
-    }`,
-    {
-      input: {
-        title: SERVICE_FEE_PRODUCT_TITLE,
-        handle: SERVICE_FEE_PRODUCT_HANDLE,
-        productType: "Service",
-        vendor: "Click and Collect",
-        status: "ACTIVE",
-        tags: ["miko-click-collect", "hidden"],
-        descriptionHtml:
-          "<p>This is an internal product used by the Click and Collect app to add packing or service fees to orders. " +
-          "Do not delete or modify. It is hidden from your storefront.</p>",
-      },
-    },
-  );
-
-  const errors = create.data?.productCreate?.userErrors ?? [];
-  if (errors.length > 0) {
-    throw new Error(`Could not create service fee product: ${errors.map((e) => e.message).join("; ")}`);
-  }
-
-  const productId = create.data?.productCreate?.product?.id ?? "";
-  if (!productId) {
-    throw new Error("Service fee product was created but no product ID was returned");
-  }
-
-  // Fetch the default variant ID separately (productCreate doesn't include variants in API 2026-04)
-  const variantQuery = await shopifyGraphql<{
-    product: { variants: { nodes: Array<{ id: string }> } } | null;
-  }>(
-    shop,
-    accessToken,
-    `query($id: ID!) {
-      product(id: $id) {
-        variants(first: 1) { nodes { id } }
-      }
-    }`,
-    { id: productId },
-  );
-
-  const variantId = variantQuery.data?.product?.variants.nodes[0]?.id ?? "";
-  if (!variantId) {
-    throw new Error("Service fee product was created but no variant was found");
-  }
-
-  // Configure the variant: $0 price, not taxable, no inventory tracking, no shipping
+async function cleanupLegacyServiceFeeProduct(shop: string, accessToken: string, productId: string) {
+  if (!productId) return;
   await shopifyGraphql(
     shop,
     accessToken,
-    `mutation variantsBulkUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
-      productVariantsBulkUpdate(productId: $productId, variants: $variants) {
-        userErrors { message }
-      }
+    `mutation($input: ProductDeleteInput!) {
+      productDelete(input: $input) { deletedProductId userErrors { message } }
     }`,
-    {
-      productId,
-      variants: [
-        {
-          id: variantId,
-          price: "0.00",
-          taxable: false,
-          inventoryItem: { tracked: false, requiresShipping: false },
-        },
-      ],
-    },
-  );
-
-  // Publish the product to ALL sales channels so it can be added to cart at checkout.
-  // Without publishing, customers see an "Unavailable product" error at checkout.
-  await publishProductEverywhere(shop, accessToken, productId);
-
-  return { productId, variantId };
+    { input: { id: productId } },
+  ).catch(() => null);
 }
 
-async function publishProductEverywhere(shop: string, accessToken: string, productId: string) {
-  const pubRes = await shopifyGraphql<{
-    publications: { nodes: Array<{ id: string; name: string }> };
-  }>(
-    shop,
-    accessToken,
-    `{ publications(first: 25) { nodes { id name } } }`,
-  );
+/* ===== Per-location shipping rates ===== */
 
-  const publications = pubRes.data?.publications?.nodes ?? [];
-  if (publications.length === 0) return;
-
-  await shopifyGraphql(
-    shop,
-    accessToken,
-    `mutation publishablePublish($id: ID!, $input: [PublicationInput!]!) {
-      publishablePublish(id: $id, input: $input) {
-        userErrors { message }
-      }
-    }`,
-    {
-      id: productId,
-      input: publications.map((p) => ({ publicationId: p.id })),
-    },
-  );
-}
-
-/* ===== Step 2: Free pickup shipping rate ===== */
-
-async function ensurePickupShippingRate(
-  shop: string,
-  accessToken: string,
-  existingRateId: string,
-): Promise<string> {
-  // Verify existing rate still exists
-  if (existingRateId) {
-    const verify = await shopifyGraphql<{ node: { id: string } | null }>(
-      shop,
-      accessToken,
-      `query($id: ID!) { node(id: $id) { ... on DeliveryRateDefinition { id } } }`,
-      { id: existingRateId },
-    );
-    if (verify.data?.node?.id) return verify.data.node.id;
-  }
-
-  // Find the default delivery profile and check whether a pickup rate already exists
-  const profilesRes = await shopifyGraphql<{
-    deliveryProfiles: {
+type DeliveryProfileShape = {
+  id: string;
+  default: boolean;
+  profileLocationGroups: Array<{
+    locationGroup: { id: string };
+    locationGroupZones: {
       nodes: Array<{
-        id: string;
-        default: boolean;
-        profileLocationGroups: Array<{
-          locationGroup: { id: string };
-          locationGroupZones: {
-            nodes: Array<{
-              zone: { id: string; name: string };
-              methodDefinitions: {
-                nodes: Array<{ id: string; name: string; rateProvider: { __typename: string } }>;
-              };
-            }>;
-          };
-        }>;
+        zone: { id: string; name: string };
+        methodDefinitions: {
+          nodes: Array<{ id: string; name: string }>;
+        };
       }>;
     };
-  }>(
+  }>;
+};
+
+async function fetchPrimaryDeliveryProfile(shop: string, accessToken: string): Promise<DeliveryProfileShape> {
+  const res = await shopifyGraphql<{ deliveryProfiles: { nodes: DeliveryProfileShape[] } }>(
     shop,
     accessToken,
     `{
@@ -244,9 +94,7 @@ async function ensurePickupShippingRate(
             locationGroupZones(first: 25) {
               nodes {
                 zone { id name }
-                methodDefinitions(first: 50) {
-                  nodes { id name rateProvider { __typename } }
-                }
+                methodDefinitions(first: 100) { nodes { id name } }
               }
             }
           }
@@ -255,37 +103,125 @@ async function ensurePickupShippingRate(
     }`,
   );
 
-  const profiles = profilesRes.data?.deliveryProfiles?.nodes ?? [];
-  // Prefer the default profile, fall back to the first profile that has zones
-  const defaultProfile =
+  const profiles = res.data?.deliveryProfiles?.nodes ?? [];
+  const profile =
     profiles.find((p) => p.default && p.profileLocationGroups?.length > 0) ??
     profiles.find((p) => p.profileLocationGroups?.length > 0);
 
-  if (!defaultProfile) {
-    if (profiles.length === 0) {
-      throw new Error("This store has no delivery profiles. Add at least one shipping zone in Shopify Admin → Settings → Shipping and delivery.");
-    }
-    throw new Error("This store's delivery profile has no shipping zones. Add at least one shipping zone in Shopify Admin → Settings → Shipping and delivery.");
+  if (!profile) {
+    throw new Error(
+      "This store has no shipping zones. Add at least one zone in Shopify Admin → Settings → Shipping and delivery → Manage rates, then re-run setup.",
+    );
   }
+  return profile;
+}
 
-  // Already has a rate matching our name? Reuse it.
-  for (const lg of defaultProfile.profileLocationGroups) {
+async function ensureLocationRate(
+  shop: string,
+  accessToken: string,
+  profile: DeliveryProfileShape,
+  location: { id: string; name: string; serviceFeeType: string; serviceFeeAmount: number; shopifyRateId: string },
+): Promise<string> {
+  const desiredName = rateNameForLocation(location.name);
+  const desiredPrice =
+    location.serviceFeeType !== "free" && location.serviceFeeAmount > 0
+      ? location.serviceFeeAmount.toFixed(2)
+      : "0.00";
+
+  // Check existing rate by stored ID
+  for (const lg of profile.profileLocationGroups) {
     for (const zone of lg.locationGroupZones.nodes) {
-      const existing = zone.methodDefinitions.nodes.find(
-        (m) => m.name.toLowerCase() === PICKUP_RATE_NAME.toLowerCase(),
-      );
-      if (existing) return existing.id;
+      for (const md of zone.methodDefinitions.nodes) {
+        if (location.shopifyRateId && md.id === location.shopifyRateId) {
+          // Update it to the desired name/price
+          await shopifyGraphql(
+            shop,
+            accessToken,
+            `mutation($id: ID!, $profile: DeliveryProfileInput!) {
+              deliveryProfileUpdate(id: $id, profile: $profile) {
+                userErrors { message }
+              }
+            }`,
+            {
+              id: profile.id,
+              profile: {
+                locationGroupsToUpdate: [
+                  {
+                    id: lg.locationGroup.id,
+                    zonesToUpdate: [
+                      {
+                        id: zone.zone.id,
+                        methodDefinitionsToUpdate: [
+                          {
+                            id: md.id,
+                            name: desiredName,
+                            active: true,
+                            rateDefinition: { price: { amount: desiredPrice, currencyCode: "USD" } },
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          );
+          return md.id;
+        }
+      }
     }
   }
 
-  // Add a $0 method definition to the first zone of the first location group
-  const firstLg = defaultProfile.profileLocationGroups[0];
-  if (!firstLg || firstLg.locationGroupZones.nodes.length === 0) {
-    throw new Error("Default delivery profile has no shipping zones — add at least one zone in Shopify Admin first");
+  // Match an existing rate by name (e.g. setup re-running after DB lost the ID)
+  for (const lg of profile.profileLocationGroups) {
+    for (const zone of lg.locationGroupZones.nodes) {
+      const found = zone.methodDefinitions.nodes.find((m) => m.name === desiredName);
+      if (found) {
+        await shopifyGraphql(
+          shop,
+          accessToken,
+          `mutation($id: ID!, $profile: DeliveryProfileInput!) {
+            deliveryProfileUpdate(id: $id, profile: $profile) {
+              userErrors { message }
+            }
+          }`,
+          {
+            id: profile.id,
+            profile: {
+              locationGroupsToUpdate: [
+                {
+                  id: lg.locationGroup.id,
+                  zonesToUpdate: [
+                    {
+                      id: zone.zone.id,
+                      methodDefinitionsToUpdate: [
+                        {
+                          id: found.id,
+                          name: desiredName,
+                          active: true,
+                          rateDefinition: { price: { amount: desiredPrice, currencyCode: "USD" } },
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        );
+        return found.id;
+      }
+    }
   }
-  const firstZone = firstLg.locationGroupZones.nodes[0];
 
-  const update = await shopifyGraphql<{
+  // Doesn't exist — create it on the first zone of the first location group
+  const firstLg = profile.profileLocationGroups[0];
+  const firstZone = firstLg.locationGroupZones.nodes[0];
+  if (!firstLg || !firstZone) {
+    throw new Error("Default delivery profile has no shipping zones");
+  }
+
+  const create = await shopifyGraphql<{
     deliveryProfileUpdate: {
       profile: { id: string } | null;
       userErrors: Array<{ message: string }>;
@@ -293,14 +229,14 @@ async function ensurePickupShippingRate(
   }>(
     shop,
     accessToken,
-    `mutation deliveryProfileUpdate($id: ID!, $profile: DeliveryProfileInput!) {
+    `mutation($id: ID!, $profile: DeliveryProfileInput!) {
       deliveryProfileUpdate(id: $id, profile: $profile) {
         profile { id }
         userErrors { message field }
       }
     }`,
     {
-      id: defaultProfile.id,
+      id: profile.id,
       profile: {
         locationGroupsToUpdate: [
           {
@@ -310,12 +246,10 @@ async function ensurePickupShippingRate(
                 id: firstZone.zone.id,
                 methodDefinitionsToCreate: [
                   {
-                    name: PICKUP_RATE_NAME,
-                    description: "Collect from one of our pickup locations.",
+                    name: desiredName,
+                    description: `Pickup from ${location.name}`,
                     active: true,
-                    rateDefinition: {
-                      price: { amount: "0.00", currencyCode: "USD" },
-                    },
+                    rateDefinition: { price: { amount: desiredPrice, currencyCode: "USD" } },
                   },
                 ],
               },
@@ -326,52 +260,109 @@ async function ensurePickupShippingRate(
     },
   );
 
-  const errors = update.data?.deliveryProfileUpdate?.userErrors ?? [];
+  const errors = create.data?.deliveryProfileUpdate?.userErrors ?? [];
   if (errors.length > 0) {
-    throw new Error(`Could not create pickup shipping rate: ${errors.map((e) => e.message).join("; ")}`);
+    throw new Error(`Could not create rate for ${location.name}: ${errors.map((e) => e.message).join("; ")}`);
   }
 
-  // Re-fetch to get the new method definition ID
-  const refetch = await shopifyGraphql<{
-    deliveryProfile: {
-      profileLocationGroups: Array<{
-        locationGroupZones: {
-          nodes: Array<{
-            methodDefinitions: { nodes: Array<{ id: string; name: string }> };
-          }>;
-        };
-      }>;
-    };
-  }>(
-    shop,
-    accessToken,
-    `query($id: ID!) {
-      deliveryProfile(id: $id) {
-        profileLocationGroups {
-          locationGroupZones(first: 25) {
-            nodes {
-              methodDefinitions(first: 50) { nodes { id name } }
-            }
-          }
-        }
-      }
-    }`,
-    { id: defaultProfile.id },
-  );
-
-  for (const lg of refetch.data?.deliveryProfile?.profileLocationGroups ?? []) {
+  // Re-fetch to find the new method definition ID
+  const refreshed = await fetchPrimaryDeliveryProfile(shop, accessToken);
+  for (const lg of refreshed.profileLocationGroups) {
     for (const zone of lg.locationGroupZones.nodes) {
-      const found = zone.methodDefinitions.nodes.find(
-        (m) => m.name.toLowerCase() === PICKUP_RATE_NAME.toLowerCase(),
-      );
+      const found = zone.methodDefinitions.nodes.find((m) => m.name === desiredName);
       if (found) return found.id;
     }
   }
-
-  return ""; // rate exists but we couldn't find the ID — non-fatal
+  return "";
 }
 
-/* ===== Step 3: Delivery customisation ===== */
+async function deleteRate(shop: string, accessToken: string, rateId: string) {
+  if (!rateId) return;
+  const profile = await fetchPrimaryDeliveryProfile(shop, accessToken).catch(() => null);
+  if (!profile) return;
+
+  // Find the location group and zone that contains the rate
+  for (const lg of profile.profileLocationGroups) {
+    for (const zone of lg.locationGroupZones.nodes) {
+      const found = zone.methodDefinitions.nodes.find((m) => m.id === rateId);
+      if (found) {
+        await shopifyGraphql(
+          shop,
+          accessToken,
+          `mutation($id: ID!, $profile: DeliveryProfileInput!) {
+            deliveryProfileUpdate(id: $id, profile: $profile) {
+              userErrors { message }
+            }
+          }`,
+          {
+            id: profile.id,
+            profile: {
+              locationGroupsToUpdate: [
+                {
+                  id: lg.locationGroup.id,
+                  zonesToUpdate: [{ id: zone.zone.id, methodDefinitionsToDelete: [rateId] }],
+                },
+              ],
+            },
+          },
+        ).catch(() => null);
+        return;
+      }
+    }
+  }
+}
+
+/**
+ * Public helper called from the Locations route after create/update/delete.
+ */
+export async function syncLocationRate(shop: string, locationId: string): Promise<void> {
+  const config = await db.shopConfig.findUnique({ where: { shop } });
+  if (!config?.accessToken) return;
+
+  const location = await db.pickupLocation.findUnique({ where: { id: locationId } });
+  const accessToken = config.accessToken;
+
+  if (!location) {
+    // Location deleted — drop the rate too (look it up by name in case the ID is lost)
+    return;
+  }
+
+  const profile = await fetchPrimaryDeliveryProfile(shop, accessToken);
+  const rateId = await ensureLocationRate(shop, accessToken, profile, location);
+  if (rateId && rateId !== location.shopifyRateId) {
+    await db.pickupLocation.update({ where: { id: locationId }, data: { shopifyRateId: rateId } });
+  }
+}
+
+/**
+ * Delete a rate by location ID before/after the row is removed from the DB.
+ */
+export async function deleteLocationRate(shop: string, rateId: string, locationName: string): Promise<void> {
+  const config = await db.shopConfig.findUnique({ where: { shop } });
+  if (!config?.accessToken) return;
+  const accessToken = config.accessToken;
+
+  if (rateId) {
+    await deleteRate(shop, accessToken, rateId);
+    return;
+  }
+
+  // Fallback: delete by name match
+  const profile = await fetchPrimaryDeliveryProfile(shop, accessToken).catch(() => null);
+  if (!profile) return;
+  const target = rateNameForLocation(locationName);
+  for (const lg of profile.profileLocationGroups) {
+    for (const zone of lg.locationGroupZones.nodes) {
+      const found = zone.methodDefinitions.nodes.find((m) => m.name === target);
+      if (found) {
+        await deleteRate(shop, accessToken, found.id);
+        return;
+      }
+    }
+  }
+}
+
+/* ===== Delivery customisation ===== */
 
 async function ensureDeliveryCustomization(
   shop: string,
@@ -394,12 +385,10 @@ async function ensureDeliveryCustomization(
     throw new Error("Click and Collect delivery function is not deployed to this store yet");
   }
 
-  // Current customisation already points to the latest function — nothing to do
   if (existingId && existingFunctionId === fn.id) {
     return { id: existingId, functionId: fn.id };
   }
 
-  // Delete old (best-effort) and create fresh
   if (existingId) {
     await shopifyGraphql(
       shop,
@@ -450,9 +439,9 @@ async function ensureDeliveryCustomization(
 export type SetupResult = {
   ok: boolean;
   steps: {
-    serviceFeeProduct: { ok: boolean; error?: string };
-    pickupShippingRate: { ok: boolean; error?: string };
+    locationRates: { ok: boolean; error?: string; count?: number };
     deliveryCustomization: { ok: boolean; error?: string };
+    cleanup: { ok: boolean; error?: string };
   };
 };
 
@@ -462,9 +451,9 @@ export async function runAutoSetup(shop: string, accessToken: string): Promise<S
     return {
       ok: false,
       steps: {
-        serviceFeeProduct: { ok: false, error: "Shop config missing" },
-        pickupShippingRate: { ok: false, error: "Shop config missing" },
+        locationRates: { ok: false, error: "Shop config missing" },
         deliveryCustomization: { ok: false, error: "Shop config missing" },
+        cleanup: { ok: false, error: "Shop config missing" },
       },
     };
   }
@@ -472,40 +461,47 @@ export async function runAutoSetup(shop: string, accessToken: string): Promise<S
   const result: SetupResult = {
     ok: true,
     steps: {
-      serviceFeeProduct: { ok: false },
-      pickupShippingRate: { ok: false },
+      locationRates: { ok: false },
       deliveryCustomization: { ok: false },
+      cleanup: { ok: false },
     },
   };
 
-  // Step 1: service fee product
+  // Step 0: clean up the old service fee product if it exists (no longer used)
   try {
-    const { productId, variantId } = await ensureServiceFeeProduct(
-      shop,
-      accessToken,
-      config.serviceFeeVariantId,
-    );
-    await db.shopConfig.update({
-      where: { shop },
-      data: { serviceFeeProductId: productId, serviceFeeVariantId: variantId },
-    });
-    result.steps.serviceFeeProduct = { ok: true };
+    if (config.serviceFeeProductId) {
+      await cleanupLegacyServiceFeeProduct(shop, accessToken, config.serviceFeeProductId);
+      await db.shopConfig.update({
+        where: { shop },
+        data: { serviceFeeProductId: "", serviceFeeVariantId: "", pickupShippingRateId: "" },
+      });
+    }
+    result.steps.cleanup = { ok: true };
   } catch (e) {
-    result.ok = false;
-    result.steps.serviceFeeProduct = { ok: false, error: e instanceof Error ? e.message : String(e) };
+    result.steps.cleanup = { ok: false, error: e instanceof Error ? e.message : String(e) };
+    // non-fatal
   }
 
-  // Step 2: pickup shipping rate
+  // Step 1: per-location shipping rates
   try {
-    const rateId = await ensurePickupShippingRate(shop, accessToken, config.pickupShippingRateId);
-    await db.shopConfig.update({ where: { shop }, data: { pickupShippingRateId: rateId } });
-    result.steps.pickupShippingRate = { ok: true };
+    const profile = await fetchPrimaryDeliveryProfile(shop, accessToken);
+    const locations = await db.pickupLocation.findMany({ where: { shop, isActive: true } });
+
+    let synced = 0;
+    for (const loc of locations) {
+      const rateId = await ensureLocationRate(shop, accessToken, profile, loc);
+      if (rateId && rateId !== loc.shopifyRateId) {
+        await db.pickupLocation.update({ where: { id: loc.id }, data: { shopifyRateId: rateId } });
+      }
+      synced++;
+    }
+    result.steps.locationRates = { ok: true, count: synced };
   } catch (e) {
     result.ok = false;
-    result.steps.pickupShippingRate = { ok: false, error: e instanceof Error ? e.message : String(e) };
+    result.steps.locationRates = { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 
-  // Step 3: delivery customisation
+  // Step 2: delivery customisation
   try {
     const { id, functionId } = await ensureDeliveryCustomization(
       shop,

@@ -176,20 +176,17 @@ export default function HelpPage() {
               <Divider />
 
               <BlockStack gap="200">
-                <Text as="h3" variant="headingSm">What was auto-created</Text>
+                <Text as="h3" variant="headingSm">What gets auto-created in your Shopify store</Text>
                 <List>
                   <List.Item>
-                    <Text as="span" fontWeight="semibold">A hidden "Click and Collect Service Fee" product</Text> — used to charge packing or service fees at checkout. Hidden from your storefront. Do not delete this product.
+                    <Text as="span" fontWeight="semibold">One shipping rate per pickup location</Text>, named "Click and Collect - {"{Location Name}"}". The price equals the service fee you configured for that location (or $0 if free). These appear in Settings → Shipping and delivery → your shipping profile.
                   </List.Item>
                   <List.Item>
-                    <Text as="span" fontWeight="semibold">A free "Click and Collect - Free" shipping rate</Text> added to your default shipping profile. This is the rate customers see when they select in-store pickup.
-                  </List.Item>
-                  <List.Item>
-                    <Text as="span" fontWeight="semibold">A delivery customisation</Text> that hides paid shipping rates whenever a customer selects in-store pickup.
+                    <Text as="span" fontWeight="semibold">A delivery customisation</Text> that hides every paid shipping rate when a customer selects in-store pickup, and shows ONLY the rate for the location they selected.
                   </List.Item>
                 </List>
                 <Banner tone="info">
-                  All three are visible in the "Click and Collect setup" card on the Settings page. If anything goes wrong, click "Re-run setup" to recreate them.
+                  Rates are created and updated automatically every time you add, edit, or delete a pickup location. If anything looks wrong, click "Re-run setup" in Settings.
                 </Banner>
               </BlockStack>
 
@@ -197,19 +194,17 @@ export default function HelpPage() {
 
               <BlockStack gap="200">
                 <Text as="h3" variant="headingSm">How it works at checkout</Text>
-                <Text as="p" tone="subdued">When a customer ticks "I will collect my order in-store":</Text>
+                <Text as="p" tone="subdued">When a customer ticks "I will collect my order in-store" and chooses a pickup location:</Text>
                 <List>
-                  <List.Item>Any paid shipping rates (e.g. Standard — $8.00) are hidden</List.Item>
-                  <List.Item>The "Click and Collect - Free" rate is shown at $0.00</List.Item>
-                  <List.Item>If the chosen location has a packing/service fee, that fee is added as a separate line item in the cart</List.Item>
+                  <List.Item>All paid shipping rates (e.g. Standard — $8.00) are hidden</List.Item>
+                  <List.Item>Only the rate for the selected location is shown — "Click and Collect - {"{Location Name}"}" with the configured fee (or $0)</List.Item>
                 </List>
                 <Box padding="300" background="bg-surface-secondary" borderRadius="200">
                   <BlockStack gap="100">
                     <Text as="p" variant="bodySm" fontWeight="semibold">Example — Customer chooses Auckland Suburb Store ($6 packing fee):</Text>
                     <Text as="p" variant="bodySm">Product: $48.00</Text>
-                    <Text as="p" variant="bodySm">Click and Collect Service Fee: $6.00</Text>
-                    <Text as="p" variant="bodySm">Subtotal: $54.00</Text>
-                    <Text as="p" variant="bodySm">Shipping: Click and Collect - Free → $0.00</Text>
+                    <Text as="p" variant="bodySm">Subtotal: $48.00</Text>
+                    <Text as="p" variant="bodySm">Shipping: Click and Collect - Auckland Suburb Store → $6.00</Text>
                     <Text as="p" variant="bodySm" fontWeight="semibold">Total: $54.00 ✓</Text>
                   </BlockStack>
                 </Box>
@@ -221,9 +216,8 @@ export default function HelpPage() {
                 <Text as="h3" variant="headingSm">Setting service fees per location</Text>
                 <List type="number">
                   <List.Item>Go to <Text as="span" fontWeight="semibold">Locations</Text> in this app</List.Item>
-                  <List.Item>Edit a location and set <Text as="span" fontWeight="semibold">Service fee type</Text> to "Fixed" or "Percentage"</List.Item>
-                  <List.Item>Enter the fee amount and optionally a "free above" threshold</List.Item>
-                  <List.Item>Save — that is it. The fee will appear in the cart when customers pick this location at checkout.</List.Item>
+                  <List.Item>Edit a location and set <Text as="span" fontWeight="semibold">Service fee type</Text> to "Fixed" and enter the fee amount</List.Item>
+                  <List.Item>Save — the app automatically updates that location's shipping rate in Shopify to the new amount. The fee shows up as the shipping cost at checkout.</List.Item>
                 </List>
               </BlockStack>
 
@@ -236,10 +230,10 @@ export default function HelpPage() {
                     <Text as="span" fontWeight="semibold">Something is not showing at checkout</Text> — go to Settings, click <Text as="span" fontWeight="semibold">Re-run setup</Text>, then refresh checkout.
                   </List.Item>
                   <List.Item>
-                    <Text as="span" fontWeight="semibold">I have multiple shipping profiles</Text> — the auto-setup adds the free rate to your default profile only. For product-specific profiles, manually add a $0 rate named "Click and Collect - Free" to each.
+                    <Text as="span" fontWeight="semibold">I have multiple shipping profiles</Text> — auto-setup adds rates to your default profile only. For product-specific profiles, manually add a rate named "Click and Collect - {"{Location Name}"}" to each profile that should support pickup.
                   </List.Item>
                   <List.Item>
-                    <Text as="span" fontWeight="semibold">I accidentally deleted the service fee product</Text> — click "Re-run setup" in Settings and a new one will be created.
+                    <Text as="span" fontWeight="semibold">I deleted a Click and Collect shipping rate by mistake</Text> — click "Re-run setup" in Settings and the missing rates will be recreated.
                   </List.Item>
                 </List>
               </BlockStack>
