@@ -1,0 +1,12 @@
+api_version = "2025-07"
+
+[[extensions]]
+type = "function"
+name = "Click and Collect - Hide Shipping"
+handle = "click-collect-delivery-customization"
+api_type = "delivery_customization"
+
+[[extensions.targeting]]
+module = "./src/index.js"
+target = "purchase.delivery-customization.run"
+input_query = "./src/run.graphql"

@@ -134,15 +134,22 @@ function ClickCollectExtension() {
   }, [myshopifyDomain]);
 
   const setAttributes = useCallback(
-    async (enabled: boolean, locId: string, locName: string) => {
+    async (enabled: boolean, locId: string, locName: string, loc?: Location) => {
       if (enabled) {
+        // Calculate the service fee for this location and cart
+        let feeAmount = "0";
+        if (loc && loc.serviceFeeType !== "free" && loc.serviceFeeAmount > 0) {
+          feeAmount = loc.serviceFeeAmount.toFixed(2);
+        }
         await applyAttributeChange({ type: "updateAttribute", key: "miko_pickup_method", value: "click_and_collect" });
         await applyAttributeChange({ type: "updateAttribute", key: "miko_location_id", value: locId });
         await applyAttributeChange({ type: "updateAttribute", key: "miko_location_name", value: locName });
+        await applyAttributeChange({ type: "updateAttribute", key: "miko_service_fee", value: feeAmount });
       } else {
         await applyAttributeChange({ type: "updateAttribute", key: "miko_pickup_method", value: "" });
         await applyAttributeChange({ type: "updateAttribute", key: "miko_location_id", value: "" });
         await applyAttributeChange({ type: "updateAttribute", key: "miko_location_name", value: "" });
+        await applyAttributeChange({ type: "updateAttribute", key: "miko_service_fee", value: "" });
       }
     },
     [applyAttributeChange],
@@ -152,7 +159,7 @@ function ClickCollectExtension() {
     (checked: boolean) => {
       setIsClickCollect(checked);
       const loc = locations.find((l) => l.id === selectedLocationId);
-      setAttributes(checked, selectedLocationId, loc?.name ?? "");
+      setAttributes(checked, selectedLocationId, loc?.name ?? "", loc);
     },
     [locations, selectedLocationId, setAttributes],
   );
@@ -162,7 +169,7 @@ function ClickCollectExtension() {
       setSelectedLocationId(value);
       const loc = locations.find((l) => l.id === value);
       if (isClickCollect) {
-        setAttributes(true, value, loc?.name ?? "");
+        setAttributes(true, value, loc?.name ?? "", loc);
       }
     },
     [locations, isClickCollect, setAttributes],

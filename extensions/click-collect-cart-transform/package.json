@@ -1,0 +1,11 @@
+{
+  "name": "click-collect-cart-transform",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "shopify-function-runner build"
+  },
+  "dependencies": {
+    "@shopify/shopify_function": "~2.0.0"
+  }
+}

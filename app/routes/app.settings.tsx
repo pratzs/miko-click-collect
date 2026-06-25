@@ -7,6 +7,7 @@ import {
   Card,
   BlockStack,
   InlineGrid,
+  InlineStack,
   Text,
   Button,
   TextField,
@@ -20,6 +21,7 @@ import { useState } from "react";
 import { authenticate } from "../shopify.server";
 import { db } from "../db.server";
 import { hasSmtp } from "../utils/plans";
+import { useAppBridge } from "@shopify/app-bridge-react";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -45,6 +47,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     brandName: config?.brandName ?? "",
     useProcessingStep: config?.useProcessingStep ?? true,
     usePackingStep: config?.usePackingStep ?? true,
+    deliveryCustomizationId: config?.deliveryCustomizationId ?? "",
   });
 };
 
@@ -83,6 +86,54 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 export default function SettingsPage() {
   const data = useLoaderData<typeof loader>();
   const fetcher = useFetcher<{ ok?: boolean; message?: string }>();
+  const shopify = useAppBridge();
+  const [dcLoading, setDcLoading] = useState(false);
+  const [dcStatus, setDcStatus] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [deliveryCustomizationId, setDeliveryCustomizationId] = useState(data.deliveryCustomizationId);
+
+  async function enableDeliveryCustomization() {
+    setDcLoading(true);
+    setDcStatus(null);
+    try {
+      const token = await shopify.idToken();
+      const res = await fetch("/api/enable-delivery-customization", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: "enable" }),
+      });
+      const json = await res.json() as { ok: boolean; id?: string; error?: string };
+      if (json.ok) {
+        setDeliveryCustomizationId(json.id ?? "enabled");
+        setDcStatus({ ok: true, msg: "Shipping waiver enabled. Customers who select click and collect will not see shipping options." });
+      } else {
+        setDcStatus({ ok: false, msg: json.error ?? "Failed to enable. Make sure you have deployed the app extensions." });
+      }
+    } catch (e) {
+      setDcStatus({ ok: false, msg: "Network error. Please try again." });
+    }
+    setDcLoading(false);
+  }
+
+  async function disableDeliveryCustomization() {
+    setDcLoading(true);
+    setDcStatus(null);
+    try {
+      const token = await shopify.idToken();
+      const res = await fetch("/api/enable-delivery-customization", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: "disable" }),
+      });
+      const json = await res.json() as { ok: boolean };
+      if (json.ok) {
+        setDeliveryCustomizationId("");
+        setDcStatus({ ok: true, msg: "Shipping waiver disabled. Shipping options will show normally." });
+      }
+    } catch {
+      setDcStatus({ ok: false, msg: "Network error. Please try again." });
+    }
+    setDcLoading(false);
+  }
 
   const [senderName, setSenderName] = useState(data.senderName);
   const [replyToEmail, setReplyToEmail] = useState(data.replyToEmail);
@@ -232,6 +283,47 @@ export default function SettingsPage() {
                     <TextField label="From name" value={smtpFromName} onChange={setSmtpFromName} autoComplete="off" disabled={!canUseSmtp} />
                   </InlineGrid>
                 </>
+              )}
+            </BlockStack>
+          </Card>
+        </Layout.Section>
+
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="400">
+              <BlockStack gap="100">
+                <Text variant="headingMd" as="h2">Shipping waiver</Text>
+                <Text as="p" tone="subdued">
+                  When enabled, customers who select in-store pickup will not see any shipping rate options at checkout. This requires the Click and Collect delivery customisation function to be deployed.
+                </Text>
+              </BlockStack>
+              {dcStatus && (
+                <Banner tone={dcStatus.ok ? "success" : "critical"} onDismiss={() => setDcStatus(null)}>
+                  {dcStatus.msg}
+                </Banner>
+              )}
+              <InlineStack gap="300" blockAlign="center">
+                <div
+                  style={{
+                    width: 10,
+                    height: 10,
+                    borderRadius: "50%",
+                    background: deliveryCustomizationId ? "#10b981" : "#d1d5db",
+                    flexShrink: 0,
+                  }}
+                />
+                <Text as="p">
+                  {deliveryCustomizationId ? "Shipping waiver is active" : "Shipping waiver is not enabled"}
+                </Text>
+              </InlineStack>
+              {deliveryCustomizationId ? (
+                <Button tone="critical" onClick={disableDeliveryCustomization} loading={dcLoading}>
+                  Disable shipping waiver
+                </Button>
+              ) : (
+                <Button variant="primary" onClick={enableDeliveryCustomization} loading={dcLoading}>
+                  Enable shipping waiver
+                </Button>
               )}
             </BlockStack>
           </Card>

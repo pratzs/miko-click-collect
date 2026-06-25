@@ -1,0 +1,12 @@
+query RunInput {
+  cart {
+    pickupMethod: attribute(key: "miko_pickup_method") {
+      value
+    }
+  }
+  deliveryGroups {
+    deliveryOptions {
+      handle
+    }
+  }
+}
