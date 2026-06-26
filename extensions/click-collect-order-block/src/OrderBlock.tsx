@@ -195,66 +195,69 @@ function OrderBlock() {
   });
   const visibleHasMultiple = visibleLineItems.length > 1;
 
-  const currentStepLabel = steps[currentIdx]?.label ?? "—";
-
   return (
     <AdminBlock title="Click & Collect">
-      <BlockStack gap="base">
+      <BlockStack gap="large">
         {message && <Banner tone={message.tone}>{message.text}</Banner>}
 
-        {/* ===== Status header — large status badge, current step name ===== */}
-        <BlockStack gap="extraTight">
-          <InlineStack gap="base" blockAlignment="center" inlineAlignment="space-between">
-            <InlineStack gap="tight" blockAlignment="center">
-              <Badge tone={STATUS_TONES[order.status] ?? "warning"}>
-                {STATUS_LABELS[order.status] ?? order.status}
-              </Badge>
-              <Text fontWeight="bold">{currentStepLabel}</Text>
-            </InlineStack>
-            <Text appearance="subdued">
-              {currentIdx + 1} / {steps.length}
-            </Text>
-          </InlineStack>
+        {/* ─────────────────────────────────────────────────────────────
+           STAGE HEADER — bold status + step counter
+           ───────────────────────────────────────────────────────────── */}
+        <InlineStack blockAlignment="center" inlineAlignment="space-between">
+          <Badge tone={STATUS_TONES[order.status] ?? "warning"} size="large-100">
+            {STATUS_LABELS[order.status] ?? order.status}
+          </Badge>
+          <Text fontVariant="numeric" appearance="subdued">
+            {currentIdx + 1} of {steps.length}
+          </Text>
+        </InlineStack>
 
-          {/* Visual progress trail — one dot per step, connected by lines */}
-          <InlineStack gap="extraTight" blockAlignment="center">
-            {steps.map((step, i) => {
-              const done = i < currentIdx;
-              const isCurrent = i === currentIdx;
-              const dot = done ? "●" : isCurrent ? "◉" : "○";
-              return (
-                <InlineStack key={step.key} gap="extraTight" blockAlignment="center">
-                  <Text appearance={done || isCurrent ? undefined : "subdued"}>
-                    {dot}
-                  </Text>
-                  {i < steps.length - 1 && (
-                    <Text appearance={i < currentIdx ? undefined : "subdued"}>
-                      ───
-                    </Text>
-                  )}
-                </InlineStack>
-              );
-            })}
-          </InlineStack>
-        </BlockStack>
+        {/* ─────────────────────────────────────────────────────────────
+           STEP TRAIL — text-only, no ASCII dots
+           Current step is bold + emphasised; done steps regular text;
+           upcoming steps subdued. Reads left to right naturally.
+           ───────────────────────────────────────────────────────────── */}
+        <InlineStack gap="small-100" blockAlignment="center">
+          {steps.map((step, i) => {
+            const done = i < currentIdx;
+            const isCurrent = i === currentIdx;
+            return (
+              <InlineStack key={step.key} gap="small-100" blockAlignment="center">
+                <Text
+                  fontWeight={isCurrent ? "bold" : "regular"}
+                  appearance={done ? undefined : isCurrent ? undefined : "subdued"}
+                >
+                  {step.label}
+                </Text>
+                {i < steps.length - 1 && (
+                  <Text appearance="subdued">/</Text>
+                )}
+              </InlineStack>
+            );
+          })}
+        </InlineStack>
 
         <Divider />
 
-        {/* ===== Pickup location — clear destination card ===== */}
-        <BlockStack gap="extraTight">
-          <Text appearance="subdued">Pickup at</Text>
+        {/* ─────────────────────────────────────────────────────────────
+           PICKUP LOCATION — destination card
+           ───────────────────────────────────────────────────────────── */}
+        <BlockStack gap="small-100">
+          <Text fontVariant="all-small-caps" appearance="subdued" fontWeight="bold">
+            Pickup location
+          </Text>
           <Text fontWeight="bold">{order.locationName}</Text>
           {order.locationAddress && (
             <Text appearance="subdued">{order.locationAddress}</Text>
           )}
         </BlockStack>
 
-        <Divider />
-
-        {/* ===== Items list ===== */}
+        {/* ─────────────────────────────────────────────────────────────
+           ITEMS — single-line entries with per-item action when multiple
+           ───────────────────────────────────────────────────────────── */}
         {visibleLineItems.length > 0 && (
-          <BlockStack gap="tight">
-            <Text appearance="subdued">
+          <BlockStack gap="small-100">
+            <Text fontVariant="all-small-caps" appearance="subdued" fontWeight="bold">
               {visibleLineItems.length === 1 ? "Item" : `${visibleLineItems.length} items`}
             </Text>
             {visibleLineItems.map((item, i) => {
@@ -268,12 +271,12 @@ function OrderBlock() {
                   blockAlignment="center"
                   inlineAlignment="space-between"
                 >
-                  <Text>
-                    {item.title}{" "}
-                    <Text appearance="subdued">× {item.quantity}</Text>
-                  </Text>
+                  <BlockStack gap="none">
+                    <Text>{item.title}</Text>
+                    <Text appearance="subdued">Quantity: {item.quantity}</Text>
+                  </BlockStack>
                   {visibleHasMultiple && (
-                    <InlineStack gap="tight" blockAlignment="center">
+                    <InlineStack gap="small-100" blockAlignment="center">
                       <Badge tone={STATUS_TONES[itemStatus] ?? "warning"}>
                         {STATUS_LABELS[itemStatus] ?? itemStatus}
                       </Badge>
@@ -293,20 +296,19 @@ function OrderBlock() {
           </BlockStack>
         )}
 
-        {/* ===== Primary action ===== */}
+        {/* ─────────────────────────────────────────────────────────────
+           PRIMARY ACTION — full-width, right-aligned
+           ───────────────────────────────────────────────────────────── */}
         {next && (
-          <>
-            <Divider />
-            <InlineStack inlineAlignment="end">
-              <Button
-                variant="primary"
-                onPress={() => handleAdvanceAll(next)}
-                loading={actionLoading === "all"}
-              >
-                {visibleHasMultiple ? `${NEXT_LABELS[next]} (All items)` : NEXT_LABELS[next] ?? "Next step"}
-              </Button>
-            </InlineStack>
-          </>
+          <InlineStack inlineAlignment="end">
+            <Button
+              variant="primary"
+              onPress={() => handleAdvanceAll(next)}
+              loading={actionLoading === "all"}
+            >
+              {visibleHasMultiple ? `${NEXT_LABELS[next]} (All items)` : NEXT_LABELS[next] ?? "Next step"}
+            </Button>
+          </InlineStack>
         )}
 
         {order.status === "picked_up" && order.pickedUpAt && (
