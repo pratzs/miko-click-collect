@@ -13,7 +13,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const shop = url.searchParams.get("shop");
   const source = url.searchParams.get("source") ?? "";
 
-  if (shop && source === "cart-block") {
+  if (
+    shop &&
+    source === "cart-block" &&
+    /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/i.test(shop)
+  ) {
     await db.shopConfig
       .update({
         where: { shop },

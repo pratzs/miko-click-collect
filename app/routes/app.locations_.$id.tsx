@@ -88,8 +88,25 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     return redirect("/app/locations");
   }
 
-  const name = (form.get("name") as string).trim();
+  const name = ((form.get("name") as string) ?? "").trim();
   if (!name) return json({ error: "Location name is required." }, { status: 400 });
+  if (name.length > 100) {
+    return json({ error: "Location name must be 100 characters or less." }, { status: 400 });
+  }
+
+  // Reject obviously bogus fee amounts so they don't sneak into Shopify variant prices
+  const feeAmount = parseFloat((form.get("serviceFeeAmount") as string) ?? "0");
+  if (Number.isNaN(feeAmount) || feeAmount < 0 || feeAmount > 10000) {
+    return json({ error: "Service fee must be between $0 and $10,000." }, { status: 400 });
+  }
+  const freeAbove = parseFloat((form.get("serviceFeeFreeAbove") as string) ?? "0");
+  if (Number.isNaN(freeAbove) || freeAbove < 0) {
+    return json({ error: "'Free above' threshold must be zero or positive." }, { status: 400 });
+  }
+  const prepTime = parseInt((form.get("prepTimeMinutes") as string) ?? "60");
+  if (Number.isNaN(prepTime) || prepTime < 0 || prepTime > 10080) {
+    return json({ error: "Prep time must be between 0 and 10080 minutes (one week)." }, { status: 400 });
+  }
 
   const hoursRaw = form.get("hours") as string;
   let hours: Hours;
@@ -108,12 +125,12 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     phone: (form.get("phone") as string) || "",
     email: (form.get("email") as string) || "",
     hours,
-    prepTimeMinutes: parseInt(form.get("prepTimeMinutes") as string) || 60,
+    prepTimeMinutes: prepTime,
     collectionInstructions: (form.get("collectionInstructions") as string) || "",
     isActive: form.get("isActive") === "true",
     serviceFeeType: (form.get("serviceFeeType") as string) || "free",
-    serviceFeeAmount: parseFloat(form.get("serviceFeeAmount") as string) || 0,
-    serviceFeeFreeAbove: parseFloat(form.get("serviceFeeFreeAbove") as string) || 0,
+    serviceFeeAmount: feeAmount,
+    serviceFeeFreeAbove: freeAbove,
     serviceFeeLabel: (form.get("serviceFeeLabel") as string) || "",
   };
 

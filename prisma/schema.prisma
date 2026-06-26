@@ -163,6 +163,7 @@ model ClickCollectOrder {
   packingAt     DateTime?
   readyAt       DateTime?
   pickedUpAt    DateTime?
+  cancelledAt   DateTime?
 
   readyNotificationSentAt    DateTime?
   pickedUpNotificationSentAt DateTime?

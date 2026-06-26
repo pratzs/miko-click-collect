@@ -9,10 +9,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
   const shop = url.searchParams.get("shop");
 
-  if (!shop) {
-    return json({ locations: [] }, {
-      headers: { "Access-Control-Allow-Origin": "*" },
-    });
+  // Reject obviously invalid shop values to avoid noisy DB lookups + scraping
+  if (!shop || !/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/i.test(shop)) {
+    return json(
+      { locations: [], serviceFeeVariantId: "" },
+      { headers: { "Access-Control-Allow-Origin": "*" } },
+    );
   }
 
   const config = await db.shopConfig.findUnique({
