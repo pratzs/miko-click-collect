@@ -50,6 +50,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     },
     senderName: config?.senderName ?? "",
     replyToEmail: config?.replyToEmail ?? "",
+    sendOwnReadyEmail: config?.sendOwnReadyEmail ?? false,
     notifyReadySubject: config?.notifyReadySubject ?? "Your order is ready for collection",
     notifyPickedUpSubject: config?.notifyPickedUpSubject ?? "Thanks for collecting your order!",
     notifyMerchantEmail: config?.notifyMerchantEmail ?? "",
@@ -83,6 +84,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     data: {
       senderName: form.get("senderName") as string,
       replyToEmail: form.get("replyToEmail") as string,
+      sendOwnReadyEmail: form.get("sendOwnReadyEmail") === "true",
       notifyReadySubject: form.get("notifyReadySubject") as string,
       notifyPickedUpSubject: form.get("notifyPickedUpSubject") as string,
       notifyMerchantEmail: form.get("notifyMerchantEmail") as string,
@@ -144,6 +146,7 @@ export default function SettingsPage() {
 
   const [senderName, setSenderName] = useState(data.senderName);
   const [replyToEmail, setReplyToEmail] = useState(data.replyToEmail);
+  const [sendOwnReadyEmail, setSendOwnReadyEmail] = useState(data.sendOwnReadyEmail);
   const [notifyReadySubject, setNotifyReadySubject] = useState(data.notifyReadySubject);
   const [notifyPickedUpSubject, setNotifyPickedUpSubject] = useState(data.notifyPickedUpSubject);
   const [notifyMerchantEmail, setNotifyMerchantEmail] = useState(data.notifyMerchantEmail);
@@ -166,6 +169,7 @@ export default function SettingsPage() {
     const fd = new FormData();
     fd.set("senderName", senderName);
     fd.set("replyToEmail", replyToEmail);
+    fd.set("sendOwnReadyEmail", String(sendOwnReadyEmail));
     fd.set("notifyReadySubject", notifyReadySubject);
     fd.set("notifyPickedUpSubject", notifyPickedUpSubject);
     fd.set("notifyMerchantEmail", notifyMerchantEmail);
@@ -231,8 +235,21 @@ export default function SettingsPage() {
             <BlockStack gap="400">
               <Text variant="headingMd" as="h2">Email notifications</Text>
               <Text as="p" tone="subdued">
-                Emails are sent to customers when their order is ready to collect and after pickup.
+                When you mark an order ready, this app marks it ready in Shopify too, and
+                <b> Shopify sends your own &quot;Ready for pickup&quot; email</b> — already branded,
+                already translated, and carrying the collection instructions you set on the
+                location. You do not have to set anything up for that to work.
               </Text>
+              <Checkbox
+                label="Also send Miko's collection email"
+                helpText={
+                  "Adds today's opening hours and the step-by-step progress. Leave this off unless " +
+                  "you want it: with it on, a customer gets two emails telling them the same order " +
+                  "is ready. It is also the only one of the two that needs the sender details below."
+                }
+                checked={sendOwnReadyEmail}
+                onChange={setSendOwnReadyEmail}
+              />
               <InlineGrid columns={2} gap="400">
                 <TextField label="Sender name" value={senderName} onChange={setSenderName} autoComplete="off" placeholder="Acme Store" />
                 <TextField label="Reply-to email" value={replyToEmail} onChange={setReplyToEmail} autoComplete="off" type="email" placeholder="hello@acme.co.nz" />

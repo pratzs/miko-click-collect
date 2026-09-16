@@ -46,6 +46,12 @@ api_version = "2026-04"
   uri = "/webhooks/orders/paid"
   topics = [ "orders/paid" ]
 
+  # Ready-for-pickup can be set from the Shopify order page, the mobile admin
+  # or POS, not only from this app. Without this the two disagree.
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/fulfillment_orders/line_items_prepared_for_pickup"
+  topics = [ "fulfillment_orders/line_items_prepared_for_pickup" ]
+
   [[webhooks.subscriptions]]
   uri = "/webhooks/orders/create"
   topics = [ "orders/create" ]

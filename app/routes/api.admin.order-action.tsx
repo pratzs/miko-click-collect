@@ -4,6 +4,7 @@ import { authenticate } from "../shopify.server";
 import { db } from "../db.server";
 import { sendStatusEmail } from "../utils/email.server";
 import { parseLineItems, minStatus } from "../utils/status";
+import { markReadyForPickupInShopify } from "../utils/pickup-status.server";
 
 /**
  * Advance a click and collect order from the admin order-details extensions.
@@ -35,7 +36,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return new Response(null, { status: 204, headers: PREFLIGHT_HEADERS });
   }
 
-  const { session, cors } = await authenticate.admin(request);
+  const { session, admin, cors } = await authenticate.admin(request);
   const shop = session.shop;
 
   const body = await request.json();
@@ -122,14 +123,24 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   // confirmed" on every item tick. Comparing against the status the order was
   // already in gets both right: partial progress is silent, and the shopper
   // hears from us exactly once, when the order itself moves.
-  const emailSent =
-    appliedStatus !== previousStatus
-      ? await sendStatusEmail(
-          order.shopConfig,
-          { ...updatedOrder!, pickupLocation: order.pickupLocation },
-          appliedStatus,
-        )
-      : false;
+  // Ready has to reach Shopify, or the order page this extension is rendered
+  // inside will still be offering its own "Ready for pickup" button.
+  let readySync: { ok: boolean; notified: boolean } = { ok: true, notified: false };
+  if (appliedStatus === "ready" && appliedStatus !== previousStatus && order.shopifyOrderGid) {
+    readySync = await markReadyForPickupInShopify(admin, order.shopifyOrderGid);
+  }
+
+  const shouldEmail =
+    appliedStatus !== previousStatus &&
+    (appliedStatus !== "ready" || order.shopConfig.sendOwnReadyEmail || !readySync.notified);
+
+  const emailSent = shouldEmail
+    ? await sendStatusEmail(
+        order.shopConfig,
+        { ...updatedOrder!, pickupLocation: order.pickupLocation },
+        appliedStatus,
+      )
+    : false;
 
   if (appliedStatus === "ready" && emailSent) {
     await db.clickCollectOrder.update({

@@ -25,6 +25,7 @@ import { sendStatusEmail } from "../utils/email.server";
 import { format } from "date-fns";
 import { parseLineItems, getNextStatus, minStatus, statusIndex } from "../utils/status";
 import { backfillCustomerContact } from "../utils/pickup-order.server";
+import { markReadyForPickupInShopify } from "../utils/pickup-status.server";
 
 const ALL_STEPS = [
   { key: "confirmed", label: "Confirmed" },
@@ -160,9 +161,23 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
       },
     });
 
-    let emailSent = false;
+    // Ready is the one status that has to exist in Shopify too, or the order
+    // page, the mobile admin and POS all keep offering "Ready for pickup" on an
+    // order this app has already told the customer to come and collect.
+    let readySync: { ok: boolean; notified: boolean; problem?: string } = { ok: true, notified: false };
+    if (nextStatus === "ready" && admin && order.shopifyOrderGid) {
+      readySync = await markReadyForPickupInShopify(admin, order.shopifyOrderGid);
+    }
+
+    // Shopify notifies the customer itself when that succeeds. Sending ours on
+    // top would be the same news twice.
+    const shouldEmail =
+      nextStatus !== "ready" || order.shopConfig.sendOwnReadyEmail || !readySync.notified;
+
     const updatedOrder = { ...order, lineItemsJson: updatedItems };
-    emailSent = await sendStatusEmail(order.shopConfig, { ...updatedOrder, pickupLocation: order.pickupLocation }, nextStatus);
+    const emailSent = shouldEmail
+      ? await sendStatusEmail(order.shopConfig, { ...updatedOrder, pickupLocation: order.pickupLocation }, nextStatus)
+      : false;
 
     if (nextStatus === "ready" && emailSent) {
       await db.clickCollectOrder.update({
@@ -179,7 +194,10 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     const statusLabels: Record<string, string> = {
       processing: "All items marked as processing.",
       packing: "All items marked as packing.",
-      ready: emailSent ? "All items ready. Customer notified!" : "All items marked as ready.",
+      ready:
+        readySync.notified || emailSent
+          ? "Ready to collect. The customer has been notified."
+          : "All items marked as ready.",
       picked_up: fulfillment.ok
         ? "Order collected and fulfilled in Shopify."
         : "Order marked collected, but Shopify would not fulfill it.",
@@ -192,9 +210,11 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
       // Say what went wrong and leave it on screen. The order is collected
       // either way; what is at stake is the merchant knowing their Shopify
       // order is still open and their stock has not moved.
-      warning: fulfillment.ok
-        ? undefined
-        : `${fulfillment.problem ?? "Shopify rejected the fulfillment."} Fulfil ${order.shopifyOrderName} in Shopify so your stock and reporting stay right.`,
+      warning: !fulfillment.ok
+        ? `${fulfillment.problem ?? "Shopify rejected the fulfillment."} Fulfil ${order.shopifyOrderName} in Shopify so your stock and reporting stay right.`
+        : !readySync.ok
+          ? `${readySync.problem ?? "Shopify would not mark this ready."} ${order.shopifyOrderName} still shows as not ready in Shopify, so your staff there will see a different status to this screen.`
+          : undefined,
     });
   }
 
@@ -240,10 +260,16 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
 
     const allReady = items.every((i) => statusIndex(i.status ?? "confirmed") >= statusIndex("ready"));
 
+    let itemReadySync: { ok: boolean; notified: boolean; problem?: string } = { ok: true, notified: false };
     let emailSent = false;
     if (nextStatus === "ready" && allReady) {
+      if (admin && order.shopifyOrderGid) {
+        itemReadySync = await markReadyForPickupInShopify(admin, order.shopifyOrderGid);
+      }
       const updatedOrder = { ...order, lineItemsJson: items };
-      emailSent = await sendStatusEmail(order.shopConfig, { ...updatedOrder, pickupLocation: order.pickupLocation }, "ready");
+      if (order.shopConfig.sendOwnReadyEmail || !itemReadySync.notified) {
+        emailSent = await sendStatusEmail(order.shopConfig, { ...updatedOrder, pickupLocation: order.pickupLocation }, "ready");
+      }
       if (emailSent) {
         await db.clickCollectOrder.update({
           where: { id },
@@ -260,7 +286,11 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     return json({
       ok: true,
       emailSent,
-      message: `"${items[itemIndex].title}" marked as ${nextStatus.replace("_", " ")}.${allReady && nextStatus === "ready" && emailSent ? " Customer notified!" : ""}`,
+      message: `"${items[itemIndex].title}" marked as ${nextStatus.replace("_", " ")}.${
+        allReady && nextStatus === "ready" && (emailSent || itemReadySync.notified)
+          ? " The customer has been notified."
+          : ""
+      }`,
       warning: itemFulfillment.ok
         ? undefined
         : `${itemFulfillment.problem ?? "Shopify rejected the fulfillment."} Fulfil ${order.shopifyOrderName} in Shopify so your stock and reporting stay right.`,

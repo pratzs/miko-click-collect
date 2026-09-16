@@ -62,6 +62,15 @@ model ShopConfig {
   onboardingCompleted Boolean @default(false)
 
   // Notification settings
+  //
+  // Shopify now sends the "ready for pickup" notification itself, because this
+  // app marks the order ready through Shopify's own mechanism rather than
+  // keeping a private ready state. That email is branded, translated, needs no
+  // sender set up, and already carries the collection instructions this app
+  // writes into the location. Ours adds opening hours and the step-by-step
+  // progress, so it stays available — but off by default, because two "your
+  // order is ready" emails for one order is worse than either one alone.
+  sendOwnReadyEmail     Boolean @default(false)
   notifyReadySubject    String @default("Your order is ready for collection")
   notifyPickedUpSubject String @default("Thanks for collecting your order!")
   notifyMerchantEmail   String @default("")
