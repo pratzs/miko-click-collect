@@ -21,6 +21,13 @@ import { useState } from "react";
 import { authenticate } from "../shopify.server";
 import { db } from "../db.server";
 import { syncLocationRate, deleteLocationRate } from "../utils/auto-setup.server";
+import {
+  listShopifyLocations,
+  syncNativePickup,
+  disableLocalPickup,
+  type ShopifyLocation,
+} from "../utils/native-pickup.server";
+import { prepTimeToPickupTime, pickupTimeLabel } from "../utils/pickup-time";
 
 const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 const DAY_LABELS: Record<string, string> = {
@@ -41,16 +48,53 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const shop = session.shop;
   const { id } = params;
 
+  const config = await db.shopConfig.findUnique({ where: { shop } });
+  const checkoutMode = config?.checkoutMode ?? "native";
+
+  // In native mode the pickup point has to BE a real Shopify location, because
+  // that is what Shopify switches local pickup on for. Offer the store's
+  // locations rather than asking the merchant to paste a GID.
+  let shopifyLocations: ShopifyLocation[] = [];
+  let shopifyLocationsError: string | null = null;
+  if (checkoutMode === "native") {
+    try {
+      shopifyLocations = await listShopifyLocations(shop, session.accessToken ?? "");
+    } catch (err) {
+      shopifyLocationsError = err instanceof Error ? err.message : String(err);
+      console.error("[locations] could not list Shopify locations:", err);
+    }
+  }
+
+  // Locations already claimed by a DIFFERENT pickup point. Two pickup points on
+  // one Shopify location cannot work: the order comes back naming the location,
+  // and we would have no way to tell which of them the customer chose.
+  const taken = await db.pickupLocation.findMany({
+    where: { shop, shopifyLocationId: { not: "" }, ...(id !== "new" ? { NOT: { id } } : {}) },
+    select: { shopifyLocationId: true, name: true },
+  });
+
   if (id === "new") {
-    return json({ location: null });
+    return json({
+      location: null,
+      checkoutMode,
+      shopifyLocations,
+      shopifyLocationsError,
+      taken,
+    });
   }
 
   const location = await db.pickupLocation.findFirst({ where: { id, shop } });
   if (!location) throw new Response("Not found", { status: 404 });
 
   return json({
+    checkoutMode,
+    shopifyLocations,
+    shopifyLocationsError,
+    taken,
     location: {
       id: location.id,
+      shopifyLocationId: location.shopifyLocationId,
+      localPickupEnabled: location.localPickupEnabled,
       name: location.name,
       address: location.address,
       city: location.city,
@@ -84,6 +128,15 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
       await deleteLocationRate(shop, loc.shopifyRateId, loc.name).catch((err) => {
         console.error("[location-rate-delete]", err);
       });
+      // Only turn local pickup off if WE turned it on. A merchant may have had
+      // pickup configured on that Shopify location long before installing this
+      // app, and deleting a pickup point here must not stop their store taking
+      // pickup orders.
+      if (loc.localPickupEnabled && loc.shopifyLocationId) {
+        await disableLocalPickup(shop, session.accessToken ?? "", loc.shopifyLocationId).catch(
+          (err) => console.error("[local-pickup-disable]", err),
+        );
+      }
     }
     return redirect("/app/locations");
   }
@@ -132,7 +185,29 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     serviceFeeAmount: feeAmount,
     serviceFeeFreeAbove: freeAbove,
     serviceFeeLabel: (form.get("serviceFeeLabel") as string) || "",
+    shopifyLocationId: (form.get("shopifyLocationId") as string) || "",
   };
+
+  // Guard the one mapping that cannot work. Two pickup points sharing a Shopify
+  // location would both match every order collected there, and we would pick
+  // one arbitrarily.
+  if (data.shopifyLocationId) {
+    const clash = await db.pickupLocation.findFirst({
+      where: {
+        shop,
+        shopifyLocationId: data.shopifyLocationId,
+        ...(id !== "new" ? { NOT: { id } } : {}),
+      },
+    });
+    if (clash) {
+      return json(
+        {
+          error: `"${clash.name}" already uses that Shopify location. Each pickup point needs its own, otherwise we can't tell which one a customer chose.`,
+        },
+        { status: 400 },
+      );
+    }
+  }
 
   let savedId: string;
   if (id === "new") {
@@ -143,16 +218,29 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     savedId = id!;
   }
 
-  // Sync the Shopify shipping rate for this location (idempotent, runs in background)
-  syncLocationRate(shop, savedId).catch((err) => {
-    console.error("[location-rate-sync]", err);
-  });
+  const config = await db.shopConfig.findUnique({ where: { shop } });
+  if ((config?.checkoutMode ?? "native") === "native") {
+    // Push the change to Shopify's own local pickup settings. Awaited, not
+    // fire-and-forget: this IS the feature in native mode, and the merchant is
+    // about to look at a screen that claims it is on.
+    try {
+      await syncNativePickup(shop, session.accessToken ?? "");
+    } catch (err) {
+      console.error("[native-pickup-sync]", err);
+    }
+  } else {
+    // Sync the Shopify shipping rate for this location (idempotent, background)
+    syncLocationRate(shop, savedId).catch((err) => {
+      console.error("[location-rate-sync]", err);
+    });
+  }
 
   return redirect("/app/locations");
 };
 
 export default function LocationFormPage() {
-  const { location } = useLoaderData<typeof loader>();
+  const { location, checkoutMode, shopifyLocations, shopifyLocationsError, taken } =
+    useLoaderData<typeof loader>();
   const navigate = useNavigate();
   const fetcher = useFetcher<{ error?: string }>();
 
@@ -169,6 +257,7 @@ export default function LocationFormPage() {
   const [hours, setHours] = useState<Hours>(
     (location?.hours as Hours) ?? defaultHours()
   );
+  const [shopifyLocationId, setShopifyLocationId] = useState(location?.shopifyLocationId ?? "");
   const [serviceFeeType, setServiceFeeType] = useState(location?.serviceFeeType ?? "free");
   const [serviceFeeAmount, setServiceFeeAmount] = useState(String(location?.serviceFeeAmount ?? "0"));
   const [serviceFeeFreeAbove, setServiceFeeFreeAbove] = useState(String(location?.serviceFeeFreeAbove ?? "0"));
@@ -196,6 +285,7 @@ export default function LocationFormPage() {
     fd.set("serviceFeeAmount", serviceFeeAmount);
     fd.set("serviceFeeFreeAbove", serviceFeeFreeAbove);
     fd.set("serviceFeeLabel", serviceFeeLabel);
+    fd.set("shopifyLocationId", shopifyLocationId);
     if (extra) Object.entries(extra).forEach(([k, v]) => fd.set(k, v));
     fetcher.submit(fd, { method: "POST" });
   }
@@ -256,6 +346,82 @@ export default function LocationFormPage() {
             </BlockStack>
           </Card>
         </Layout.Section>
+
+        {checkoutMode === "native" && (
+          <Layout.Section>
+            <Card>
+              <BlockStack gap="400">
+                <Text variant="headingMd" as="h2">Shopify location</Text>
+                {shopifyLocationsError ? (
+                  <Banner tone="warning" title="We couldn't load your Shopify locations">
+                    <Text as="p">
+                      Shopify returned: {shopifyLocationsError}. Refresh the page to try again.
+                      Until this is linked, the pickup point won't appear at checkout.
+                    </Text>
+                  </Banner>
+                ) : (
+                  <>
+                    <Select
+                      label="Which Shopify location is this?"
+                      options={[
+                        { label: "Not linked yet", value: "" },
+                        ...shopifyLocations.map((loc) => {
+                          const owner = taken.find((t) => t.shopifyLocationId === loc.id);
+                          return {
+                            label: owner
+                              ? `${loc.name} — already used by ${owner.name}`
+                              : loc.fulfillsOnlineOrders
+                                ? loc.name
+                                : `${loc.name} — doesn't fulfill online orders`,
+                            value: loc.id,
+                            disabled: Boolean(owner),
+                          };
+                        }),
+                      ]}
+                      value={shopifyLocationId}
+                      onChange={setShopifyLocationId}
+                      helpText="Shopify shows the pickup option at checkout per location, so each pickup point has to be one of your real store locations."
+                    />
+                    {!shopifyLocationId && (
+                      <Banner tone="warning">
+                        <Text as="p">
+                          Until you link a Shopify location, this pickup point will not be
+                          offered at checkout.
+                        </Text>
+                      </Banner>
+                    )}
+                    {shopifyLocationId &&
+                      !shopifyLocations.find((l) => l.id === shopifyLocationId)
+                        ?.fulfillsOnlineOrders && (
+                        <Banner tone="warning" title="This location doesn't fulfill online orders">
+                          <Text as="p">
+                            Shopify will not offer it at checkout until you turn on
+                            &quot;Fulfill online orders from this location&quot; in Settings →
+                            Locations.
+                          </Text>
+                        </Banner>
+                      )}
+                    <Banner tone="info">
+                      <BlockStack gap="200">
+                        <Text as="p">
+                          Customers will see &quot;{pickupTimeLabel(prepTimeToPickupTime(parseInt(prepTime) || 60))}&quot;
+                          at checkout. Shopify only offers a fixed set of times, so we round your
+                          preparation time up to the nearest one. Your own emails and dashboard
+                          still use the exact time.
+                        </Text>
+                        <Text as="p" tone="subdued">
+                          Shopify only offers this location when the items ordered can be
+                          supplied there, so keep inventory at this location up to date (or leave
+                          inventory untracked).
+                        </Text>
+                      </BlockStack>
+                    </Banner>
+                  </>
+                )}
+              </BlockStack>
+            </Card>
+          </Layout.Section>
+        )}
 
         <Layout.Section>
           <Card>

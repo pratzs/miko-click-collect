@@ -71,6 +71,27 @@ model ShopConfig {
   useProcessingStep Boolean @default(true)
   usePackingStep    Boolean @default(true)
 
+  // How the customer chooses pickup.
+  //
+  //   "native" — Shopify's own local pickup. The pickup option and the location
+  //     list are rendered by Shopify inside checkout, on EVERY plan. No theme
+  //     edit, nothing to bypass with a Buy Now button. Cannot charge a fee.
+  //   "rates"  — our per-location shipping rates, chosen in our cart-page block
+  //     (all plans) or our checkout extension (Shopify Plus only). Supports a
+  //     per-location fee.
+  //
+  // NEW installs are set to "native" explicitly, in ensureShopConfig — that is
+  // the better default, because "rates" without Plus depends entirely on the
+  // merchant adding our cart block to their theme and any dynamic checkout
+  // button skips the cart page completely.
+  //
+  // The COLUMN default is "rates" on purpose, and must stay that way: every
+  // shop that existed before this column did is running rates mode, with live
+  // per-location shipping rates in their store. A "native" column default would
+  // silently reclassify all of them on the next deploy, leaving those rates
+  // orphaned at checkout and pickup mapped to nothing.
+  checkoutMode String @default("rates")
+
   // Shopify Function IDs (set after first deploy)
   deliveryCustomizationId         String @default("")
   deliveryCustomizationFunctionId String @default("")
@@ -117,6 +138,16 @@ model PickupLocation {
   shopifyRateId       String @default("")       // Shopify shipping rate ID synced to this location
   shopifyFeeVariantId String @default("")       // Variant on the service fee product priced at this location's fee
   shopifyFeeVariantPrice String @default("")    // Last-synced price string for change detection
+
+  // The real Shopify Location this pickup point is. Required for "native"
+  // checkout mode: Shopify's local pickup is switched on per Location, and the
+  // order comes back to us carrying that Location, not our own record's id.
+  // Empty means the merchant has not mapped this pickup point yet, and it
+  // cannot appear in checkout in native mode.
+  shopifyLocationId  String  @default("")       // gid://shopify/Location/...
+  // Mirrors what we last told Shopify, so the locations screen can show the
+  // truth rather than our intent.
+  localPickupEnabled Boolean @default(false)
 
   isActive  Boolean @default(true)
   sortOrder Int     @default(0)

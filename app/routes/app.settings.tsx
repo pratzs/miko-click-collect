@@ -23,13 +23,18 @@ import { db } from "../db.server";
 import { hasSmtp } from "../utils/plans";
 import { useAppBridge } from "@shopify/app-bridge-react";
 
-import { runAutoSetup } from "../utils/auto-setup.server";
+import { runAutoSetup, switchCheckoutMode } from "../utils/auto-setup.server";
+import { fetchShopPlan } from "../utils/shop-plan.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const shop = session.shop;
 
   let config = await db.shopConfig.findUnique({ where: { shop } });
+
+  // null means "we couldn't find out" — the UI stays quiet rather than telling
+  // a Plus merchant their checkout selector is broken when it isn't.
+  const shopPlan = await fetchShopPlan(admin);
 
   // Auto-run setup silently if it hasn't completed yet — keeps things working after deploys
   if (config && (!config.setupCompletedAt || config.setupError)) {
@@ -39,6 +44,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   return json({
     planName: config?.planName ?? "free",
+    checkoutMode: config?.checkoutMode ?? "native",
+    shopPlan,
+    nativePickup: {
+      mappedCount: await db.pickupLocation.count({
+        where: { shop, isActive: true, NOT: { shopifyLocationId: "" } },
+      }),
+      enabledCount: await db.pickupLocation.count({
+        where: { shop, isActive: true, localPickupEnabled: true },
+      }),
+    },
     senderName: config?.senderName ?? "",
     replyToEmail: config?.replyToEmail ?? "",
     notifyReadySubject: config?.notifyReadySubject ?? "Your order is ready for collection",
@@ -77,6 +92,31 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   const form = await request.formData();
 
+  // Changing how customers choose pickup rewires the merchant's store, so it is
+  // handled before anything else and reported on its own.
+  const requestedMode = form.get("checkoutMode") as string | null;
+  const warnings: string[] = [];
+  if (requestedMode === "native" || requestedMode === "rates") {
+    const current = await db.shopConfig.findUnique({ where: { shop } });
+    if ((current?.checkoutMode ?? "native") !== requestedMode) {
+      try {
+        const res = await switchCheckoutMode(shop, session.accessToken ?? "", requestedMode);
+        warnings.push(...res.warnings);
+      } catch (err) {
+        console.error("[settings] checkout mode switch failed:", err);
+        return json(
+          {
+            ok: false,
+            message: `We could not switch the pickup method: ${
+              err instanceof Error ? err.message : String(err)
+            }. Nothing else was saved — please try again.`,
+          },
+          { status: 500 },
+        );
+      }
+    }
+  }
+
   await db.shopConfig.update({
     where: { shop },
     data: {
@@ -100,7 +140,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     },
   });
 
-  return json({ ok: true, message: "Settings saved!" });
+  return json({
+    ok: warnings.length === 0,
+    message: warnings.length
+      ? `Settings saved, but some cleanup in Shopify did not finish: ${warnings.join(" ")}`
+      : "Settings saved!",
+  });
 };
 
 export default function SettingsPage() {
@@ -157,6 +202,7 @@ export default function SettingsPage() {
   const [brandName, setBrandName] = useState(data.brandName);
   const [useProcessingStep, setUseProcessingStep] = useState(data.useProcessingStep);
   const [usePackingStep, setUsePackingStep] = useState(data.usePackingStep);
+  const [checkoutMode, setCheckoutMode] = useState(data.checkoutMode);
 
   const canUseSmtp = hasSmtp(data.planName);
   const isSubmitting = fetcher.state !== "idle";
@@ -179,6 +225,7 @@ export default function SettingsPage() {
     fd.set("brandName", brandName);
     fd.set("useProcessingStep", String(useProcessingStep));
     fd.set("usePackingStep", String(usePackingStep));
+    fd.set("checkoutMode", checkoutMode);
     fetcher.submit(fd, { method: "POST" });
   }
 
@@ -186,11 +233,86 @@ export default function SettingsPage() {
     <Page title="Settings" primaryAction={{ content: "Save settings", onAction: save, loading: isSubmitting }}>
       {fetcher.data?.message && (
         <Box paddingBlockEnd="400">
-          <Banner tone={fetcher.data.ok ? "success" : "critical"}>{fetcher.data.message}</Banner>
+          <Banner tone={fetcher.data.ok ? "success" : "warning"}>{fetcher.data.message}</Banner>
         </Box>
       )}
 
       <Layout>
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="400">
+              <BlockStack gap="100">
+                <Text variant="headingMd" as="h2">How customers choose pickup</Text>
+                <Text as="p" tone="subdued">
+                  This decides where the customer picks their store, and it is the one setting
+                  that depends on your Shopify plan.
+                </Text>
+              </BlockStack>
+
+              <Select
+                label="Pickup method"
+                options={[
+                  { label: "Shopify local pickup (works on every plan)", value: "native" },
+                  { label: "Our pickup rates (needed to charge a pickup fee)", value: "rates" },
+                ]}
+                value={checkoutMode}
+                onChange={setCheckoutMode}
+              />
+
+              {checkoutMode === "native" ? (
+                <BlockStack gap="200">
+                  <Text as="p">
+                    Shopify shows a pickup option in checkout and lists your stores, on any
+                    plan. Nothing to add to your theme, and it can&apos;t be skipped by Buy Now
+                    or Shop Pay buttons.
+                  </Text>
+                  <Text as="p" tone="subdued">
+                    Trade-off: Shopify&apos;s pickup is always free. Per-location pickup fees
+                    need the other option. Link each pickup point to a Shopify location on the
+                    Locations page.
+                  </Text>
+                  {data.nativePickup.mappedCount > 0 && (
+                    <Text as="p" tone="subdued" variant="bodySm">
+                      Live at checkout: {data.nativePickup.enabledCount} of{" "}
+                      {data.nativePickup.mappedCount} linked pickup locations.
+                    </Text>
+                  )}
+                </BlockStack>
+              ) : (
+                <BlockStack gap="200">
+                  <Text as="p">
+                    The customer picks their store in our own selector, and each location gets
+                    its own delivery rate at checkout so you can charge a pickup fee.
+                  </Text>
+                  {data.shopPlan && !data.shopPlan.supportsCheckoutExtensions && (
+                    <Banner tone="warning" title="Your plan can't show our selector inside checkout">
+                      <BlockStack gap="200">
+                        <Text as="p">
+                          Shopify only allows apps to add content to the checkout page on the
+                          Shopify Plus plan, and you&apos;re on {data.shopPlan.displayName}. On
+                          this plan the selector only appears in our cart-page block, which you
+                          have to add to your theme, and customers who use Buy Now or Shop Pay
+                          skip the cart entirely and will never see it.
+                        </Text>
+                        <Text as="p" fontWeight="semibold">
+                          Unless you need to charge a pickup fee, switch to Shopify local
+                          pickup above.
+                        </Text>
+                      </BlockStack>
+                    </Banner>
+                  )}
+                  {data.shopPlan?.supportsCheckoutExtensions && (
+                    <Text as="p" tone="subdued">
+                      Your plan ({data.shopPlan.displayName}) supports our in-checkout selector,
+                      so customers choose their store inside checkout.
+                    </Text>
+                  )}
+                </BlockStack>
+              )}
+            </BlockStack>
+          </Card>
+        </Layout.Section>
+
         <Layout.Section>
           <Card>
             <BlockStack gap="400">
@@ -310,26 +432,67 @@ export default function SettingsPage() {
                 </Banner>
               )}
 
-              <BlockStack gap="200">
-                <SetupRow ok={!!setup.serviceFeeVariantId} label="Service fee product created (used for paid pickup fees)" />
-                <SetupRow
-                  ok={setup.locationCount > 0 && setup.ratedLocationCount === setup.locationCount}
-                  label={
-                    setup.locationCount === 0
-                      ? "Pickup locations created (add at least one)"
-                      : `Shipping rates synced for ${setup.ratedLocationCount}/${setup.locationCount} pickup locations`
-                  }
-                />
-                <SetupRow ok={!!setup.deliveryCustomizationId} label="Shipping waiver active (hides paid rates on pickup orders)" />
-                <SetupRow
-                  ok={setup.cartBlockInstalled}
-                  label={
-                    setup.cartBlockInstalled
-                      ? "Cart-page pickup block installed (optional)"
-                      : "Cart-page pickup block not installed (optional — checkout still works)"
-                  }
-                />
-              </BlockStack>
+              {/* The checklist shows the mode that is actually SAVED, not the
+                  one selected in the dropdown above — otherwise it would claim
+                  things are wired up the moment someone changes the dropdown,
+                  before anything has been saved or built in Shopify. */}
+              {data.checkoutMode === "native" ? (
+                <BlockStack gap="200">
+                  <SetupRow
+                    ok={setup.locationCount > 0}
+                    label={
+                      setup.locationCount === 0
+                        ? "Pickup locations created (add at least one)"
+                        : `${setup.locationCount} active pickup location${setup.locationCount === 1 ? "" : "s"}`
+                    }
+                  />
+                  <SetupRow
+                    ok={
+                      setup.locationCount > 0 &&
+                      data.nativePickup.mappedCount === setup.locationCount
+                    }
+                    label={
+                      setup.locationCount === 0
+                        ? "Each pickup location linked to a Shopify location"
+                        : `${data.nativePickup.mappedCount}/${setup.locationCount} pickup locations linked to a Shopify location`
+                    }
+                  />
+                  <SetupRow
+                    ok={
+                      data.nativePickup.mappedCount > 0 &&
+                      data.nativePickup.enabledCount === data.nativePickup.mappedCount
+                    }
+                    label={
+                      data.nativePickup.mappedCount === 0
+                        ? "Pickup switched on at checkout"
+                        : `Pickup switched on at checkout for ${data.nativePickup.enabledCount}/${data.nativePickup.mappedCount} locations`
+                    }
+                  />
+                </BlockStack>
+              ) : (
+                <BlockStack gap="200">
+                  <SetupRow ok={!!setup.serviceFeeVariantId} label="Service fee product created (used for paid pickup fees)" />
+                  <SetupRow
+                    ok={setup.locationCount > 0 && setup.ratedLocationCount === setup.locationCount}
+                    label={
+                      setup.locationCount === 0
+                        ? "Pickup locations created (add at least one)"
+                        : `Shipping rates synced for ${setup.ratedLocationCount}/${setup.locationCount} pickup locations`
+                    }
+                  />
+                  <SetupRow ok={!!setup.deliveryCustomizationId} label="Shipping waiver active (hides paid rates on pickup orders)" />
+                  <SetupRow
+                    ok={setup.cartBlockInstalled}
+                    label={
+                      setup.cartBlockInstalled
+                        ? "Cart-page pickup block installed"
+                        : data.shopPlan && !data.shopPlan.supportsCheckoutExtensions
+                          ? "Cart-page pickup block NOT installed — on your plan this is the only place customers can choose pickup"
+                          : "Cart-page pickup block not installed (optional — the in-checkout selector still works)"
+                    }
+                  />
+                </BlockStack>
+              )}
 
               {setup.error && !setup.completed && (
                 <Banner tone="warning">

@@ -2,7 +2,18 @@
  * Auto-setup creates everything in the merchant's Shopify store that's needed
  * for Click and Collect to "just work" — no manual configuration required.
  *
- * Design (hybrid):
+ * There are two checkout modes and they need completely different setup. Which
+ * one runs is decided by ShopConfig.checkoutMode.
+ *
+ * "native" (the default, works on every Shopify plan) needs almost nothing from
+ * this file: Shopify draws the pickup option and the location list inside
+ * checkout itself, so setup is just switching local pickup on for the mapped
+ * locations. See native-pickup.server.ts.
+ *
+ * "rates" is everything below. It exists for merchants who charge a pickup fee,
+ * which Shopify's native pickup cannot do.
+ *
+ * Design of "rates" mode (hybrid):
  *   1. Per-location shipping rates, always priced $0 — gives Shopify a valid
  *      delivery option whose name identifies the pickup location.
  *   2. A hidden "Click and Collect Service Fee" product — added as a separate
@@ -21,6 +32,7 @@
  */
 
 import { db } from "../db.server";
+import { syncNativePickup, disableLocalPickup } from "./native-pickup.server";
 
 const API_VERSION = "2026-04";
 const DELIVERY_CUSTOMIZATION_TITLE = "Click and Collect - Hide Shipping";
@@ -782,13 +794,87 @@ async function ensureDeliveryCustomization(
 
 /* ===== Orchestrator ===== */
 
+/**
+ * Switch a shop between "native" and "rates", tearing down what the old mode
+ * put in the merchant's store before building the new one.
+ *
+ * The teardown is the point. Leaving the old mode's artefacts behind is not
+ * harmless: stale "Click and Collect - ..." shipping rates keep showing up as
+ * delivery options at checkout after the merchant thinks they have moved off
+ * them, and local pickup left switched on keeps offering pickup that this app
+ * has stopped managing. Either one means a customer places an order nobody is
+ * expecting.
+ *
+ * Teardown failures are collected and reported, never swallowed — a merchant
+ * told "mode switched" while old rates are still live at checkout would have no
+ * idea why customers are seeing two pickup options.
+ *
+ * The delivery customisation function is deliberately NOT removed when moving
+ * to native mode. With the "Click and Collect - ..." rates gone it matches
+ * nothing and performs no operations, and keeping it means switching back is
+ * instant instead of re-registering a Shopify Function.
+ */
+export async function switchCheckoutMode(
+  shop: string,
+  accessToken: string,
+  nextMode: "native" | "rates",
+): Promise<{ ok: boolean; warnings: string[] }> {
+  const config = await db.shopConfig.findUnique({ where: { shop } });
+  const previousMode = config?.checkoutMode ?? "native";
+  const warnings: string[] = [];
+
+  if (previousMode === nextMode) return { ok: true, warnings };
+
+  const locations = await db.pickupLocation.findMany({ where: { shop } });
+
+  if (nextMode === "native") {
+    // Leaving rates mode: remove the per-location shipping rates we created.
+    for (const loc of locations) {
+      if (!loc.shopifyRateId) continue;
+      try {
+        await deleteLocationRate(shop, loc.shopifyRateId, loc.name);
+        await db.pickupLocation.update({ where: { id: loc.id }, data: { shopifyRateId: "" } });
+      } catch (err) {
+        warnings.push(
+          `Could not remove the "${RATE_PREFIX} - ${loc.name}" shipping rate: ${
+            err instanceof Error ? err.message : String(err)
+          }. Delete it in Settings → Shipping and delivery so customers don't see it twice.`,
+        );
+      }
+    }
+  } else {
+    // Leaving native mode: switch off the local pickup we turned on. Only ours
+    // — localPickupEnabled is our own record of what this app enabled.
+    for (const loc of locations) {
+      if (!loc.localPickupEnabled || !loc.shopifyLocationId) continue;
+      try {
+        await disableLocalPickup(shop, accessToken, loc.shopifyLocationId);
+        await db.pickupLocation.update({
+          where: { id: loc.id },
+          data: { localPickupEnabled: false },
+        });
+      } catch (err) {
+        warnings.push(
+          `Could not turn off Shopify local pickup for "${loc.name}": ${
+            err instanceof Error ? err.message : String(err)
+          }. Turn it off in Settings → Shipping and delivery → Local pickup.`,
+        );
+      }
+    }
+  }
+
+  await db.shopConfig.update({ where: { shop }, data: { checkoutMode: nextMode } });
+  const setup = await runAutoSetup(shop, accessToken);
+
+  return { ok: setup.ok && warnings.length === 0, warnings };
+}
+
+export type SetupStep = { ok: boolean; error?: string; count?: number };
+
 export type SetupResult = {
   ok: boolean;
-  steps: {
-    serviceFeeProduct: { ok: boolean; error?: string };
-    locationRates: { ok: boolean; error?: string; count?: number };
-    deliveryCustomization: { ok: boolean; error?: string };
-  };
+  mode: string;
+  steps: Record<string, SetupStep>;
 };
 
 export async function runAutoSetup(shop: string, accessToken: string): Promise<SetupResult> {
@@ -796,16 +882,42 @@ export async function runAutoSetup(shop: string, accessToken: string): Promise<S
   if (!config) {
     return {
       ok: false,
-      steps: {
-        locationRates: { ok: false, error: "Shop config missing" },
-        deliveryCustomization: { ok: false, error: "Shop config missing" },
-        cleanup: { ok: false, error: "Shop config missing" },
-      },
+      mode: "unknown",
+      steps: { config: { ok: false, error: "Shop config missing" } },
     };
+  }
+
+  // Native mode needs none of the rates-mode machinery — no shipping rates, no
+  // hidden fee product, no delivery customisation function. Shopify renders the
+  // pickup option itself. Running the rates setup anyway would litter the
+  // merchant's store with "Click and Collect - ..." shipping rates and a hidden
+  // product that nothing ever uses.
+  if (config.checkoutMode === "native") {
+    const result: SetupResult = { ok: true, mode: "native", steps: { nativePickup: { ok: false } } };
+    try {
+      const sync = await syncNativePickup(shop, accessToken);
+      const problems: string[] = sync.failures.map((f) => `${f.location}: ${f.error}`);
+      if (sync.unmapped.length) {
+        problems.push(
+          `Not shown at checkout until linked to a Shopify location: ${sync.unmapped.join(", ")}`,
+        );
+      }
+      result.steps.nativePickup = problems.length
+        ? { ok: false, count: sync.enabled, error: problems.join(" | ") }
+        : { ok: true, count: sync.enabled };
+      result.ok = problems.length === 0;
+    } catch (e) {
+      result.ok = false;
+      result.steps.nativePickup = { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+
+    await finishSetup(shop, result);
+    return result;
   }
 
   const result: SetupResult = {
     ok: true,
+    mode: "rates",
     steps: {
       serviceFeeProduct: { ok: false },
       locationRates: { ok: false },
@@ -913,6 +1025,11 @@ export async function runAutoSetup(shop: string, accessToken: string): Promise<S
     result.steps.deliveryCustomization = { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 
+  await finishSetup(shop, result);
+  return result;
+}
+
+async function finishSetup(shop: string, result: SetupResult) {
   const errorSummary = Object.entries(result.steps)
     .filter(([, v]) => !v.ok)
     .map(([k, v]) => `${k}: ${v.error}`)
@@ -925,6 +1042,4 @@ export async function runAutoSetup(shop: string, accessToken: string): Promise<S
       setupError: errorSummary,
     },
   });
-
-  return result;
 }

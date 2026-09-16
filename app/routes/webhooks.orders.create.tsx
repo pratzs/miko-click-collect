@@ -38,12 +38,50 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   };
 
   const attrs = new Map(order.note_attributes?.map((a) => [a.name, a.value]) ?? []);
-  if (attrs.get(ATTR_PICKUP) !== "click_and_collect") return json({ ok: true });
 
-  const locationId = attrs.get(ATTR_LOCATION_ID);
-  if (!locationId) return json({ ok: true });
+  // Two ways an order can be a pickup order, because there are two ways the
+  // customer can choose one.
+  //
+  //   "rates" mode  — our cart block or checkout extension wrote the pickup
+  //     attributes onto the cart, and they arrive here as note_attributes.
+  //   "native" mode — the customer used SHOPIFY's own pickup option inside
+  //     checkout. There are no attributes at all; the only evidence is on the
+  //     order's fulfillment orders, which say PICK_UP and name the location.
+  //
+  // Both are checked on every order rather than branching on the shop's
+  // configured mode: a merchant who switches modes still has in-flight
+  // checkouts started under the old one, and those orders must not vanish.
+  let location = null as Awaited<ReturnType<typeof db.pickupLocation.findFirst>>;
 
-  const location = await db.pickupLocation.findFirst({ where: { id: locationId, shop } });
+  if (attrs.get(ATTR_PICKUP) === "click_and_collect") {
+    const locationId = attrs.get(ATTR_LOCATION_ID);
+    if (locationId) {
+      location = await db.pickupLocation.findFirst({ where: { id: locationId, shop } });
+    }
+  }
+
+  if (!location && admin) {
+    const shopifyLocationId = await findNativePickupLocationId(
+      admin,
+      order.admin_graphql_api_id,
+    );
+    if (shopifyLocationId) {
+      location = await db.pickupLocation.findFirst({
+        where: { shop, shopifyLocationId },
+      });
+      if (!location) {
+        // Shopify handed the order to a location we do not have a pickup point
+        // for. Loud on purpose: the merchant enabled pickup on a location
+        // outside this app, and their customer is now waiting for a collection
+        // email this app will never send.
+        console.warn(
+          `[orders/create] ${shop}: order ${order.name} is a native pickup at ` +
+            `${shopifyLocationId}, which is not mapped to any pickup location in this app`,
+        );
+      }
+    }
+  }
+
   if (!location) return json({ ok: true });
 
   const customerName = [order.customer?.first_name, order.customer?.last_name]
@@ -136,6 +174,56 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   return json({ ok: true });
 };
+
+/**
+ * Is this order one of Shopify's own local pickup orders, and if so, which
+ * Location is it being collected from?
+ *
+ * A native pickup order carries no attributes and no marker of ours. The
+ * delivery method lives on the fulfillment orders, where `methodType` is
+ * PICK_UP and `assignedLocation` is the store the customer chose.
+ *
+ * Returns null on any failure rather than throwing: a lookup problem must not
+ * make the webhook fail and be retried forever.
+ */
+async function findNativePickupLocationId(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  admin: any,
+  orderGid: string,
+): Promise<string | null> {
+  if (!orderGid) return null;
+  try {
+    const res = await admin.graphql(
+      `#graphql
+      query PickupFulfillmentOrders($id: ID!) {
+        order(id: $id) {
+          fulfillmentOrders(first: 10) {
+            nodes {
+              deliveryMethod { methodType }
+              assignedLocation { location { id } }
+            }
+          }
+        }
+      }`,
+      { variables: { id: orderGid } },
+    );
+    const data = await res.json();
+    if (data?.errors) {
+      console.error("[findNativePickupLocationId] GraphQL errors:", JSON.stringify(data.errors));
+      return null;
+    }
+    const nodes = data?.data?.order?.fulfillmentOrders?.nodes ?? [];
+    for (const node of nodes) {
+      if (node?.deliveryMethod?.methodType === "PICK_UP") {
+        return node?.assignedLocation?.location?.id ?? null;
+      }
+    }
+    return null;
+  } catch (err) {
+    console.error("[findNativePickupLocationId] lookup failed:", err);
+    return null;
+  }
+}
 
 async function autoFulfillServiceFeeLine(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
