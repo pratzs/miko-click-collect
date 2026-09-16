@@ -8,12 +8,24 @@ type OrderWithLocation = ClickCollectOrder & { pickupLocation: PickupLocation };
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 
+/**
+ * The address shared-sending mail actually leaves from.
+ *
+ * MUST be on a domain verified in Resend. The fallback here is Resend's shared
+ * testing sender, which only delivers to the Resend account owner's own
+ * address: with it in place every "ready to collect" email to a real shopper is
+ * silently undeliverable, and that email IS this product. The other Miko apps
+ * all set MIKO_SENDER_EMAIL=noreply@miko.co.nz for exactly this reason.
+ */
+const SHARED_SENDER_EMAIL = process.env.MIKO_SENDER_EMAIL || "onboarding@resend.dev";
+
 async function sendViaResend(
   from: string,
   to: string,
   subject: string,
   html: string,
   bcc?: string,
+  replyTo?: string,
 ): Promise<void> {
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -25,6 +37,9 @@ async function sendViaResend(
       from,
       to: [to],
       ...(bcc ? { bcc: [bcc] } : {}),
+      // The shopper is emailing the MERCHANT back, not us. Without this a
+      // reply goes to a shared sending domain the merchant does not read.
+      ...(replyTo ? { reply_to: [replyTo] } : {}),
       subject,
       html,
     }),
@@ -60,17 +75,29 @@ async function sendEmail(
   bcc?: string,
 ): Promise<void> {
   const fromName = config.smtpFromName || config.senderName || config.shopName || "Your Store";
-  const fromEmail = config.smtpFromEmail || config.replyToEmail;
-  const from = `${fromName} <${fromEmail}>`;
+  const merchantReplyTo = config.smtpFromEmail || config.replyToEmail || "";
 
+  // A merchant on their own SMTP sends as themselves, which is always better.
   if (config.smtpHost && config.smtpUser && config.smtpPass) {
-    await sendViaSmtp(config, from, to, subject, html, bcc);
-  } else if (RESEND_API_KEY) {
-    const resendFrom = `${fromName} <onboarding@resend.dev>`;
-    await sendViaResend(resendFrom, to, subject, html, bcc);
-  } else {
+    await sendViaSmtp(config, `${fromName} <${merchantReplyTo}>`, to, subject, html, bcc);
+    return;
+  }
+
+  if (!RESEND_API_KEY) {
     throw new Error("No email provider configured. Set RESEND_API_KEY or configure SMTP.");
   }
+
+  // Shared sending. The domain has to be one we control and have verified, so
+  // the merchant's own address goes in the display name and Reply-To instead:
+  // the shopper sees the store's name, and replying reaches the store.
+  await sendViaResend(
+    `${fromName} <${SHARED_SENDER_EMAIL}>`,
+    to,
+    subject,
+    html,
+    bcc,
+    merchantReplyTo || undefined,
+  );
 }
 
 function brandColor(config: ShopConfig) {
