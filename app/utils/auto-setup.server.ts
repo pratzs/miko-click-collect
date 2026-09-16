@@ -107,38 +107,51 @@ async function fetchPrimaryDeliveryProfile(shop: string, accessToken: string): P
   return profile;
 }
 
+/**
+ * Delete one legacy "Click and Collect - ..." delivery rate.
+ *
+ * Throws on failure, and that matters: the first version swallowed every error
+ * with `.catch(() => null)` and never looked at `userErrors`, so cleanup
+ * reported success, cleared our record of the rate, and left it live at
+ * checkout. Verified on a real checkout, which still offered
+ * "Click and Collect - Office" long after the app said it was gone. A delete
+ * that cannot confirm the delete must say so.
+ */
 async function deleteRate(shop: string, accessToken: string, rateId: string) {
   if (!rateId) return;
-  const profile = await fetchPrimaryDeliveryProfile(shop, accessToken).catch(() => null);
-  if (!profile) return;
+  const profile = await fetchPrimaryDeliveryProfile(shop, accessToken);
 
-  // Find the location group and zone that contains the rate
   for (const lg of profile.profileLocationGroups) {
     for (const zone of lg.locationGroupZones.nodes) {
       const found = zone.methodDefinitions.nodes.find((m) => m.id === rateId);
-      if (found) {
-        await shopifyGraphql(
-          shop,
-          accessToken,
-          `mutation($id: ID!, $profile: DeliveryProfileInput!) {
-            deliveryProfileUpdate(id: $id, profile: $profile) {
-              userErrors { message }
-            }
-          }`,
-          {
-            id: profile.id,
-            profile: {
-              locationGroupsToUpdate: [
-                {
-                  id: lg.locationGroup.id,
-                  zonesToUpdate: [{ id: zone.zone.id, methodDefinitionsToDelete: [rateId] }],
-                },
-              ],
-            },
+      if (!found) continue;
+
+      const res = await shopifyGraphql<{
+        deliveryProfileUpdate: { userErrors: Array<{ message: string }> };
+      }>(
+        shop,
+        accessToken,
+        `mutation($id: ID!, $profile: DeliveryProfileInput!) {
+          deliveryProfileUpdate(id: $id, profile: $profile) {
+            userErrors { message }
+          }
+        }`,
+        {
+          id: profile.id,
+          profile: {
+            locationGroupsToUpdate: [
+              {
+                id: lg.locationGroup.id,
+                zonesToUpdate: [{ id: zone.zone.id, methodDefinitionsToDelete: [rateId] }],
+              },
+            ],
           },
-        ).catch(() => null);
-        return;
-      }
+        },
+      );
+      if (res.errors?.length) throw new Error(res.errors.map((e) => e.message).join("; "));
+      const userErrors = res.data?.deliveryProfileUpdate?.userErrors ?? [];
+      if (userErrors.length) throw new Error(userErrors.map((e) => e.message).join("; "));
+      return;
     }
   }
 }
@@ -206,23 +219,46 @@ async function cleanUpLegacyArtefacts(
 
   try {
     const profile = await fetchPrimaryDeliveryProfile(shop, accessToken);
-    const stale: string[] = [];
+    const stale: Array<{ id: string; name: string }> = [];
     for (const lg of profile.profileLocationGroups) {
       for (const zone of lg.locationGroupZones.nodes) {
         for (const m of zone.methodDefinitions.nodes) {
-          if ((m.name ?? "").startsWith(RATE_PREFIX + " - ")) stale.push(m.id);
+          if ((m.name ?? "").startsWith(RATE_PREFIX + " - ")) stale.push({ id: m.id, name: m.name });
         }
       }
     }
-    for (const id of stale) await deleteRate(shop, accessToken, id);
-    if (stale.length) {
+
+    const deleted: string[] = [];
+    const failed: string[] = [];
+    for (const rate of stale) {
+      try {
+        await deleteRate(shop, accessToken, rate.id);
+        deleted.push(rate.id);
+      } catch (err) {
+        failed.push(`${rate.name}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    if (deleted.length) {
       removed.push(
-        `Removed ${stale.length} old "${RATE_PREFIX} - ..." delivery ${stale.length === 1 ? "rate" : "rates"} from your shipping settings`,
+        `Removed ${deleted.length} old "${RATE_PREFIX} - ..." delivery ${deleted.length === 1 ? "rate" : "rates"} from your shipping settings`,
       );
-      await db.pickupLocation.updateMany({ where: { shop }, data: { shopifyRateId: "" } });
+      // Only forget the ones Shopify actually accepted a delete for. Clearing
+      // every row regardless is how the old version lost track of a rate that
+      // was still live at checkout.
+      await db.pickupLocation.updateMany({
+        where: { shop, shopifyRateId: { in: deleted } },
+        data: { shopifyRateId: "" },
+      });
+    }
+    if (failed.length) {
+      throw new Error(
+        `Could not remove ${failed.length} old delivery ${failed.length === 1 ? "rate" : "rates"}: ${failed.join(" | ")}. Delete them in Settings then Shipping and delivery so customers do not see them.`,
+      );
     }
   } catch (err) {
     console.warn("[cleanup] legacy rates:", err);
+    throw err;
   }
 
   return removed;
@@ -247,7 +283,12 @@ export async function runAutoSetup(shop: string, accessToken: string): Promise<S
 
   const result: SetupResult = { ok: true, steps: { pickup: { ok: false } }, cleanedUp: [] };
 
-  result.cleanedUp = await cleanUpLegacyArtefacts(shop, accessToken, config.serviceFeeProductId);
+  try {
+    result.cleanedUp = await cleanUpLegacyArtefacts(shop, accessToken, config.serviceFeeProductId);
+  } catch (e) {
+    result.ok = false;
+    result.steps.cleanup = { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
 
   try {
     const sync = await syncNativePickup(shop, accessToken);
