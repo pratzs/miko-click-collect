@@ -15,6 +15,24 @@ import {
 
 const TARGET = "admin.order-details.action.render";
 
+/**
+ * Every call to this app's backend must prove who is making it.
+ *
+ * `auth.idToken()` mints a short-lived Shopify session token for the signed-in
+ * staff member, which the backend verifies with `authenticate.admin` and uses
+ * to scope the query to that shop. Without it these endpoints were open to the
+ * internet: an anonymous request carrying only an order GID read a different
+ * merchant's order in full, and the same trick on order-action could mark any
+ * order ready and mail that merchant's customer.
+ */
+async function authHeaders(auth: { idToken: () => Promise<string | null> }) {
+  const token = await auth.idToken();
+  return {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
 export default reactExtension(TARGET, () => <OrderActionExtension />);
 
 interface LineItem {
@@ -77,7 +95,7 @@ function getNextStatus(current: string, order: ClickCollectOrder): string | null
 }
 
 function OrderActionExtension() {
-  const { data, close } = useApi(TARGET);
+  const { data, close, auth } = useApi(TARGET);
   const [order, setOrder] = useState<ClickCollectOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -100,6 +118,7 @@ function OrderActionExtension() {
     try {
       const res = await fetch(
         `${APP_URL}/api/admin/order-status?orderGid=${encodeURIComponent(orderGid!)}`,
+        { headers: await authHeaders(auth) },
       );
       if (res.status === 404) {
         setNotClickCollect(true);
@@ -127,7 +146,7 @@ function OrderActionExtension() {
     try {
       const res = await fetch(`${APP_URL}/api/admin/order-action`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await authHeaders(auth),
         body: JSON.stringify({ orderId: order.id, intent: `advance_${nextStatus}` }),
       });
       const json = await res.json();
@@ -152,7 +171,7 @@ function OrderActionExtension() {
     try {
       const res = await fetch(`${APP_URL}/api/admin/order-action`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await authHeaders(auth),
         body: JSON.stringify({ orderId: order.id, intent: `advance_${nextStatus}`, itemIndex }),
       });
       const json = await res.json();

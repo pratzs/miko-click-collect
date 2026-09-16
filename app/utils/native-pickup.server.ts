@@ -98,32 +98,55 @@ type LocationNode = {
  * Every location in the store, with its current local pickup state read from
  * Shopify rather than from our own mirror — the locations screen must show what
  * the merchant would see in Shopify admin, not what we last intended.
+ *
+ * Paged, because "every" has to mean every. This asked for the first 100 and
+ * took whatever came back, which is fine for a single shop and wrong for the
+ * chains this app is sold to: a retailer with more than 100 stores would have
+ * had the rest silently dropped, so locations past the hundredth would never be
+ * offered for import, never have pickup switched on, and never appear at
+ * checkout — with nothing anywhere saying why.
  */
 export async function listShopifyLocations(
   shop: string,
   accessToken: string,
 ): Promise<ShopifyLocation[]> {
-  const res = await shopifyGraphql<{ locations: { nodes: LocationNode[] } }>(
-    shop,
-    accessToken,
-    `#graphql
-    query PickupLocations {
-      locations(first: 100, includeInactive: false) {
-        nodes {
-          id
-          name
-          isActive
-          fulfillsOnlineOrders
-          address { address1 city zip latitude longitude }
-          localPickupSettingsV2 { pickupTime instructions }
+  const nodes: LocationNode[] = [];
+  let cursor: string | null = null;
+
+  // A stop that cannot be hit by a real store, so a bad cursor cannot spin
+  // forever against Shopify's API.
+  for (let pages = 0; pages < 50; pages++) {
+    const res: Awaited<ReturnType<typeof shopifyGraphql<{
+      locations: { nodes: LocationNode[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } };
+    }>>> = await shopifyGraphql(
+      shop,
+      accessToken,
+      `#graphql
+      query PickupLocations($after: String) {
+        locations(first: 250, includeInactive: false, after: $after) {
+          nodes {
+            id
+            name
+            isActive
+            fulfillsOnlineOrders
+            address { address1 city zip latitude longitude }
+            localPickupSettingsV2 { pickupTime instructions }
+          }
+          pageInfo { hasNextPage endCursor }
         }
-      }
-    }`,
-  );
-  if (res.errors?.length) {
-    throw new Error(res.errors.map((e) => e.message).join("; "));
+      }`,
+      { after: cursor },
+    );
+    if (res.errors?.length) {
+      throw new Error(res.errors.map((e) => e.message).join("; "));
+    }
+    nodes.push(...(res.data?.locations?.nodes ?? []));
+    const pageInfo = res.data?.locations?.pageInfo;
+    if (!pageInfo?.hasNextPage || !pageInfo.endCursor) break;
+    cursor = pageInfo.endCursor;
   }
-  return (res.data?.locations?.nodes ?? []).map((node) => ({
+
+  return nodes.map((node) => ({
     id: node.id,
     name: node.name,
     isActive: node.isActive,
