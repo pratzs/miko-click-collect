@@ -179,7 +179,12 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
       ? await sendStatusEmail(order.shopConfig, { ...updatedOrder, pickupLocation: order.pickupLocation }, nextStatus)
       : false;
 
-    if (nextStatus === "ready" && emailSent) {
+    // Record that the customer was told, whoever told them. Shopify's own
+    // notification counts: if this is left unset the order screen offers to
+    // "resend" a message that did go out, and anything that later measures how
+    // long an order has been waiting to be collected has no moment to count
+    // from.
+    if (nextStatus === "ready" && (emailSent || readySync.notified)) {
       await db.clickCollectOrder.update({
         where: { id },
         data: { readyNotificationSentAt: new Date() },
@@ -270,7 +275,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
       if (order.shopConfig.sendOwnReadyEmail || !itemReadySync.notified) {
         emailSent = await sendStatusEmail(order.shopConfig, { ...updatedOrder, pickupLocation: order.pickupLocation }, "ready");
       }
-      if (emailSent) {
+      if (emailSent || itemReadySync.notified) {
         await db.clickCollectOrder.update({
           where: { id },
           data: { readyNotificationSentAt: new Date() },

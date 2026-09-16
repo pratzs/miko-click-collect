@@ -142,7 +142,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       )
     : false;
 
-  if (appliedStatus === "ready" && emailSent) {
+  // Shopify's own notification counts as the customer having been told.
+  if (appliedStatus === "ready" && (emailSent || readySync.notified)) {
     await db.clickCollectOrder.update({
       where: { id: order.id },
       data: { readyNotificationSentAt: new Date() },
