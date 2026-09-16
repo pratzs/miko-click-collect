@@ -7,6 +7,7 @@ import {
 } from "@shopify/shopify-app-remix/server";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import { db } from "./db.server";
+import { settleDevStoreGrant } from "./dev-store.server";
 import { ensureShopConfig } from "./utils/shop.server";
 import { runAutoSetup } from "./utils/auto-setup.server";
 
@@ -38,9 +39,33 @@ const shopify = shopifyApp({
     expiringOfflineAccessTokens: true,
   },
   hooks: {
-    afterAuth: async ({ session }) => {
+    afterAuth: async ({ admin, session }) => {
       shopify.registerWebhooks({ session });
       await ensureShopConfig(session.shop, session.accessToken ?? "");
+
+      // A Partner development store gets the top plan free, settled at install
+      // rather than in the app loader: Remix runs parent and child loaders in
+      // parallel, so a grant written by app.tsx is not visible to the child
+      // route rendering the gated screen on that same first render.
+      try {
+        const cfg = await db.shopConfig.findUnique({ where: { shop: session.shop } });
+        if (cfg) {
+          const target = await settleDevStoreGrant(admin, session.shop, {
+            hasSubscription: false /* no subscription state in this app */,
+            currentPlan: cfg.planName,
+            cachedIsDev: cfg.isDevelopmentStore,
+          });
+          if (target) {
+            await db.shopConfig.update({
+              where: { shop: session.shop },
+              data: { planName: target },
+            });
+            console.log(`[afterAuth] ${session.shop}: dev-store grant -> ${target}`);
+          }
+        }
+      } catch (err) {
+        console.warn("[afterAuth] dev-store grant skipped:", err);
+      }
       // Fire and forget — never block auth on setup; surfaces errors in the dashboard banner
       runAutoSetup(session.shop, session.accessToken ?? "").catch((err) => {
         console.error("[auto-setup] failed for", session.shop, err);
