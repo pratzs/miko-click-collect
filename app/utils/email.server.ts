@@ -100,6 +100,34 @@ async function sendEmail(
   );
 }
 
+const DAY_KEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+/**
+ * Today's opening hours for the store the shopper is collecting from.
+ *
+ * A "your order is ready" email that does not say when the shop is open sends
+ * people to a locked door. Every retailer doing this well says it; we were
+ * holding the hours per location and never passing them on.
+ */
+function openingHoursHtml(location: PickupLocation): string {
+  const hours = (location.hours ?? {}) as Record<
+    string,
+    { open?: string; close?: string; closed?: boolean } | undefined
+  >;
+  const idx = new Date().getDay();
+  const today = hours[DAY_KEYS[idx]];
+  if (!today) return "";
+
+  if (today.closed) {
+    // Say so rather than stay silent: "closed today" is the one thing a shopper
+    // most needs to know before setting off.
+    return `<p style="margin:8px 0 0;color:#555;"><strong>Closed today (${DAY_NAMES[idx]})</strong></p>`;
+  }
+  if (!today.open || !today.close) return "";
+  return `<p style="margin:8px 0 0;color:#555;">Open today (${DAY_NAMES[idx]}) ${today.open} to ${today.close}</p>`;
+}
+
 function brandColor(config: ShopConfig) {
   return config.brandPrimaryColor || "#1a1a1a";
 }
@@ -181,22 +209,12 @@ function itemsTableHtml(order: OrderWithLocation): string {
     return isNaN(n) ? String(val) : n.toFixed(2);
   };
 
-  const STATUS_LABELS: Record<string, string> = {
-    confirmed: "Confirmed",
-    processing: "Processing",
-    packing: "Packing",
-    ready: "Ready",
-    picked_up: "Collected",
-  };
-
-  const hasItemStatuses = items.some((i) => i.status);
-
   const rows = items
     .map(
       (item) => `
       <tr>
         <td style="padding:10px 0;border-bottom:1px solid #f0f0f0;color:#1a1a1a;font-size:14px;">
-          ${item.title}${hasItemStatuses && item.status ? `<br><span style="font-size:11px;color:#888;background:#f0f0f0;padding:2px 8px;border-radius:10px;display:inline-block;margin-top:4px;">${STATUS_LABELS[item.status] || item.status}</span>` : ""}
+          ${item.title}
         </td>
         <td style="padding:10px 12px;border-bottom:1px solid #f0f0f0;color:#555;font-size:14px;text-align:center;white-space:nowrap;">
           x${item.quantity}
@@ -271,6 +289,7 @@ function statusUpdateHtml(
             ${location.address ? `<p style="margin:0 0 2px;color:#555;">${location.address}</p>` : ""}
             ${location.city ? `<p style="margin:0 0 2px;color:#555;">${location.city}${location.postcode ? ` ${location.postcode}` : ""}</p>` : ""}
             ${location.phone ? `<p style="margin:0;color:#555;">${location.phone}</p>` : ""}
+            ${openingHoursHtml(location)}
           </div>
           ${location.collectionInstructions ? `
           <div style="background:#fffbe6;border-radius:8px;padding:16px;margin-bottom:24px;">
