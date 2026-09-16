@@ -190,7 +190,10 @@ function OrderActionExtension() {
 
   if (loading) {
     return (
-      <AdminAction title="Click & Collect" primaryAction={null} secondaryAction={{ title: "Close", onAction: close }}>
+      <AdminAction
+        title="Click & Collect"
+        secondaryAction={<Button onPress={close}>Close</Button>}
+      >
         <BlockStack gap="base">
           <InlineStack inlineAlignment="center">
             <ProgressIndicator size="small-200" />
@@ -203,7 +206,10 @@ function OrderActionExtension() {
 
   if (notClickCollect) {
     return (
-      <AdminAction title="Click & Collect" primaryAction={null} secondaryAction={{ title: "Close", onAction: close }}>
+      <AdminAction
+        title="Click & Collect"
+        secondaryAction={<Button onPress={close}>Close</Button>}
+      >
         <Banner tone="info">This is not a click &amp; collect order.</Banner>
       </AdminAction>
     );
@@ -215,12 +221,30 @@ function OrderActionExtension() {
   return (
     <AdminAction
       title="Click & Collect"
-      primaryAction={next ? {
-        title: hasMultipleItems ? `${NEXT_LABELS[next] ?? "Next step"} (All)` : NEXT_LABELS[next] ?? "Next step",
-        onAction: () => handleAdvanceAll(next),
-        loading: actionLoading === "all",
-      } : null}
-      secondaryAction={{ title: "Close", onAction: close }}
+      /*
+       * These have to be Button ELEMENTS, not {title, onAction} objects.
+       * AdminAction types both slots as a RemoteFragment — "This component must
+       * be a button component" — and an object is silently dropped rather than
+       * rejected, which is why this panel has only ever shown Shopify's own
+       * fallback Cancel button. Seen on a live order: a store worker could open
+       * Click & Collect from the order page, read the status, and do nothing at
+       * all with it. The whole point of the extension is the one control it was
+       * not rendering.
+       */
+      primaryAction={
+        next ? (
+          <Button
+            variant="primary"
+            onPress={() => handleAdvanceAll(next)}
+            disabled={actionLoading !== null}
+          >
+            {hasMultipleItems
+              ? `${NEXT_LABELS[next] ?? "Next step"} (all items)`
+              : NEXT_LABELS[next] ?? "Next step"}
+          </Button>
+        ) : undefined
+      }
+      secondaryAction={<Button onPress={close}>Close</Button>}
     >
       <BlockStack gap="base">
         {success && <Banner tone="success">{success}</Banner>}
@@ -246,7 +270,10 @@ function OrderActionExtension() {
                 <BlockStack key={i} gap="extraTight">
                   <InlineStack gap="tight" blockAlignment="center">
                     <Text>{item.title}</Text>
-                    <Text appearance="subdued">x{item.quantity}</Text>
+                    {/* Non-breaking space: this renders as "Storage Boxx1"
+                        with a plain one, because the surrounding layout gap
+                        does not apply here and a leading space is trimmed. */}
+                    <Text appearance="subdued">{`\u00A0× ${item.quantity}`}</Text>
                   </InlineStack>
                   {hasMultipleItems && (
                     <InlineStack gap="tight" blockAlignment="center">
@@ -256,7 +283,7 @@ function OrderActionExtension() {
                       {itemNext && (
                         <Button
                           onPress={() => handleAdvanceItem(i, itemNext, item.title)}
-                          loading={actionLoading === `item-${i}`}
+                          disabled={actionLoading !== null}
                         >
                           {NEXT_LABELS[itemNext]}
                         </Button>

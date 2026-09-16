@@ -23,6 +23,11 @@ import { authenticate } from "../shopify.server";
 import { db } from "../db.server";
 import { getPlan } from "../utils/plans";
 
+/** "1 order", "4 orders". Shown four times on this page, all of them wrong. */
+function orderCount(n: number): string {
+  return `${n} ${n === 1 ? "order" : "orders"}`;
+}
+
 function formatDuration(mins: number): string {
   if (mins < 60) return `${mins}m`;
   const h = Math.floor(mins / 60);
@@ -400,14 +405,14 @@ export default function AnalyticsPage() {
                   <Text as="h2" variant="headingMd">Daily order volume</Text>
                   {stats.peakDay && (
                     <Text as="p" tone="subdued" variant="bodySm">
-                      Peak day: {new Date(stats.peakDay.date + "T00:00:00").toLocaleDateString("en-NZ", { weekday: "short", day: "numeric", month: "short" })} ({stats.peakDay.count} orders)
+                      Peak day: {new Date(stats.peakDay.date + "T00:00:00").toLocaleDateString("en-NZ", { weekday: "short", day: "numeric", month: "short" })} ({orderCount(stats.peakDay.count)})
                     </Text>
                   )}
                   <div style={{ display: "flex", alignItems: "flex-end", gap: "2px", height: "120px" }}>
                     {dailyOrders.map((d) => (
                       <div
                         key={d.date}
-                        title={`${new Date(d.date + "T00:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short" })}: ${d.count} orders`}
+                        title={`${new Date(d.date + "T00:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short" })}: ${orderCount(d.count)}`}
                         style={{
                           flex: 1,
                           minWidth: "3px",
@@ -434,7 +439,7 @@ export default function AnalyticsPage() {
                 <BlockStack gap="400">
                   <Text as="h2" variant="headingMd">Busiest days of the week</Text>
                   <Text as="p" tone="subdued" variant="bodySm">
-                    {stats.busiestDow} is your busiest day with {stats.busiestDowCount} orders
+                    {stats.busiestDow} is your busiest day with {orderCount(stats.busiestDowCount)}
                   </Text>
                   <BlockStack gap="200">
                     {dowCounts.map((d) => (
@@ -509,7 +514,7 @@ export default function AnalyticsPage() {
                           <BlockStack gap="100">
                             <InlineStack align="space-between" blockAlign="center">
                               <Text as="p" fontWeight="semibold">{loc.name}</Text>
-                              <Text as="p" variant="bodySm">{loc.total} orders</Text>
+                              <Text as="p" variant="bodySm">{orderCount(loc.total)}</Text>
                             </InlineStack>
                             <InlineStack gap="300">
                               <Text as="p" variant="bodySm" tone="subdued">

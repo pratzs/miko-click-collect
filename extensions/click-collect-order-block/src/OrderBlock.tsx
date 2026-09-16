@@ -302,7 +302,7 @@ function OrderBlock() {
                       {itemNext && (
                         <Button
                           onPress={() => handleAdvanceItem(realIdx, itemNext, item.title)}
-                          loading={actionLoading === `item-${realIdx}`}
+                          disabled={actionLoading !== null}
                         >
                           {NEXT_LABELS[itemNext]}
                         </Button>
@@ -323,7 +323,7 @@ function OrderBlock() {
             <Button
               variant="primary"
               onPress={() => handleAdvanceAll(next)}
-              loading={actionLoading === "all"}
+              disabled={actionLoading !== null}
             >
               {visibleHasMultiple ? `${NEXT_LABELS[next]} (All items)` : NEXT_LABELS[next] ?? "Next step"}
             </Button>
