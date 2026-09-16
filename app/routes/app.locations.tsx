@@ -38,15 +38,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const activeCount = locations.filter((l) => l.isActive).length;
   const canAdd = canAddLocation(planName, activeCount);
 
-  const checkoutMode = config?.checkoutMode ?? "native";
-
-  // In native mode a pickup point that isn't linked to a Shopify location does
-  // not exist as far as checkout is concerned. Count the store locations we
-  // could still import so the page can offer it instead of making the merchant
-  // retype addresses Shopify already has.
+  // A pickup point that isn't linked to a Shopify location does not exist as
+  // far as checkout is concerned. Count the store locations we could still
+  // import so the page can offer it instead of making the merchant retype
+  // addresses Shopify already has.
   let importableCount = 0;
   let addressless: string[] = [];
-  if (checkoutMode === "native") {
+  {
     try {
       const shopifyLocations = await listShopifyLocations(shop, session.accessToken ?? "");
       const claimed = new Set(locations.map((l) => l.shopifyLocationId).filter(Boolean));
@@ -85,7 +83,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     planName,
     activeCount,
     canAdd,
-    checkoutMode,
     importableCount,
     addressless,
   });
@@ -183,15 +180,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function LocationsPage() {
-  const { locations, plan, planName, activeCount, canAdd, checkoutMode, importableCount, addressless } =
+  const { locations, plan, planName, activeCount, canAdd, importableCount, addressless } =
     useLoaderData<typeof loader>();
   const navigate = useNavigate();
   const importer = useFetcher<{ ok?: boolean; message?: string }>();
 
-  const isNative = checkoutMode === "native";
-  const unlinked = isNative
-    ? locations.filter((l) => l.isActive && !l.shopifyLocationId)
-    : [];
+  const unlinked = locations.filter((l) => l.isActive && !l.shopifyLocationId);
 
   return (
     <Page
@@ -202,7 +196,7 @@ export default function LocationsPage() {
         onAction: () => navigate("/app/locations/new"),
       }}
       secondaryActions={
-        isNative && importableCount > 0
+        importableCount > 0
           ? [
               {
                 content: `Import ${importableCount} from Shopify`,
@@ -274,7 +268,7 @@ export default function LocationsPage() {
               <EmptyState
                 heading="Add your first pickup location"
                 action={
-                  isNative && importableCount > 0
+                  importableCount > 0
                     ? {
                         content: `Import ${importableCount} from Shopify`,
                         loading: importer.state !== "idle",
@@ -283,7 +277,7 @@ export default function LocationsPage() {
                     : { content: "Add location", onAction: () => navigate("/app/locations/new") }
                 }
                 secondaryAction={
-                  isNative && importableCount > 0
+                  importableCount > 0
                     ? { content: "Add manually", onAction: () => navigate("/app/locations/new") }
                     : undefined
                 }
@@ -291,7 +285,7 @@ export default function LocationsPage() {
               >
                 <p>
                   Locations are where customers collect their orders.
-                  {isNative && importableCount > 0
+                  {importableCount > 0
                     ? ` You already have ${importableCount} Shopify location${importableCount === 1 ? "" : "s"} that can fulfill online orders — import ${importableCount === 1 ? "it" : "them"} and pickup is live at checkout straight away.`
                     : " Add your store addresses, warehouses, or distribution points."}
                 </p>
@@ -312,7 +306,7 @@ export default function LocationsPage() {
                               </Badge>
                               {/* "Active" is our own flag; this says whether
                                   Shopify is actually offering it at checkout. */}
-                              {isNative && location.isActive && !location.localPickupEnabled && (
+                              {location.isActive && !location.localPickupEnabled && (
                                 <Badge tone="warning">Not at checkout</Badge>
                               )}
                             </InlineStack>

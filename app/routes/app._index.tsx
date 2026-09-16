@@ -27,7 +27,6 @@ import { db } from "../db.server";
 import { getPlan } from "../utils/plans";
 import { DEV_STORE_PLAN } from "../dev-store.server";
 import { reconcilePlan } from "../utils/billing.server";
-import { fetchShopPlan } from "../utils/shop-plan.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
@@ -78,32 +77,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     (config?.replyToEmail || config?.smtpHost) && (process.env.RESEND_API_KEY || config?.smtpHost)
   );
 
-  // The one combination where the app looks configured and does nothing:
-  // "rates" mode on a plan that cannot render our checkout extension. The
-  // merchant sees locations, rates and green ticks, and their customers get a
-  // checkout with no pickup option at all unless the cart block is installed
-  // AND they went through the cart page. Worth interrupting the dashboard for.
-  const checkoutMode = config?.checkoutMode ?? "native";
-  let pickupUnreachable: { planName: string } | null = null;
-  if (checkoutMode === "rates") {
-    const shopPlan = await fetchShopPlan(admin);
-    const cartBlockInstalled =
-      !!config?.cartBlockLastSeenAt &&
-      Date.now() - new Date(config.cartBlockLastSeenAt).getTime() < 30 * 24 * 60 * 60 * 1000;
-    // Not raised on development stores: their plan name doesn't tell us whether
-    // checkout extensions work there, and they take no real customer orders, so
-    // a red alarm we can't stand behind is worse than staying quiet. Settings
-    // tells the developer to test their own checkout instead.
-    if (
-      shopPlan &&
-      !shopPlan.supportsCheckoutExtensions &&
-      !shopPlan.partnerDevelopment &&
-      !cartBlockInstalled
-    ) {
-      pickupUnreachable = { planName: shopPlan.displayName };
-    }
-  }
-
   return json({
     planName,
     plan,
@@ -114,7 +87,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     pickedUpCount,
     totalOrderCount,
     hasEmailConfig,
-    pickupUnreachable,
     recentOrders: orders.map((o) => ({
       id: o.id,
       orderName: o.shopifyOrderName,
@@ -197,7 +169,7 @@ export default function DashboardPage() {
   const {
     planName, plan, shopHandle, locationCount,
     pendingCount, readyCount, pickedUpCount, totalOrderCount,
-    hasEmailConfig, pickupUnreachable, recentOrders,
+    hasEmailConfig, recentOrders,
   } = useLoaderData<typeof loader>();
   const navigate = useNavigate();
 
@@ -328,30 +300,6 @@ export default function DashboardPage() {
       ]}
     >
       <Layout>
-        {pickupUnreachable && (
-          <Layout.Section>
-            <Banner
-              tone="critical"
-              title="Customers can't choose pickup at checkout"
-              action={{ content: "Switch to Shopify local pickup", onAction: () => navigate("/app/settings") }}
-              secondaryAction={{ content: "Add the cart block instead", onAction: openThemeEditor }}
-            >
-              <BlockStack gap="200">
-                <Text as="p">
-                  You&apos;re using our own pickup rates, which show the store selector inside
-                  checkout — and Shopify only lets apps do that on the Shopify Plus plan. You&apos;re
-                  on {pickupUnreachable.planName}, and the cart-page block isn&apos;t installed
-                  either, so right now there is nowhere for a customer to choose pickup.
-                </Text>
-                <Text as="p">
-                  Switching to Shopify&apos;s own local pickup fixes this on your plan, with no
-                  theme changes. The one thing you&apos;d give up is charging a pickup fee.
-                </Text>
-              </BlockStack>
-            </Banner>
-          </Layout.Section>
-        )}
-
         {/* Setup progress (shown until all steps are done) */}
         {!allDone && (
           <Layout.Section>

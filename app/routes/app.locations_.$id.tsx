@@ -20,7 +20,6 @@ import {
 import { useState } from "react";
 import { authenticate } from "../shopify.server";
 import { db } from "../db.server";
-import { syncLocationRate, deleteLocationRate } from "../utils/auto-setup.server";
 import {
   listShopifyLocations,
   syncNativePickup,
@@ -48,21 +47,16 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const shop = session.shop;
   const { id } = params;
 
-  const config = await db.shopConfig.findUnique({ where: { shop } });
-  const checkoutMode = config?.checkoutMode ?? "native";
-
-  // In native mode the pickup point has to BE a real Shopify location, because
-  // that is what Shopify switches local pickup on for. Offer the store's
-  // locations rather than asking the merchant to paste a GID.
+  // A pickup point has to BE a real Shopify location, because that is what
+  // Shopify switches local pickup on for. Offer the store's locations rather
+  // than asking the merchant to paste an id.
   let shopifyLocations: ShopifyLocation[] = [];
   let shopifyLocationsError: string | null = null;
-  if (checkoutMode === "native") {
-    try {
-      shopifyLocations = await listShopifyLocations(shop, session.accessToken ?? "");
-    } catch (err) {
-      shopifyLocationsError = err instanceof Error ? err.message : String(err);
-      console.error("[locations] could not list Shopify locations:", err);
-    }
+  try {
+    shopifyLocations = await listShopifyLocations(shop, session.accessToken ?? "");
+  } catch (err) {
+    shopifyLocationsError = err instanceof Error ? err.message : String(err);
+    console.error("[locations] could not list Shopify locations:", err);
   }
 
   // Locations already claimed by a DIFFERENT pickup point. Two pickup points on
@@ -76,7 +70,6 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   if (id === "new") {
     return json({
       location: null,
-      checkoutMode,
       shopifyLocations,
       shopifyLocationsError,
       taken,
@@ -87,7 +80,6 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   if (!location) throw new Response("Not found", { status: 404 });
 
   return json({
-    checkoutMode,
     shopifyLocations,
     shopifyLocationsError,
     taken,
@@ -105,10 +97,6 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       prepTimeMinutes: location.prepTimeMinutes,
       collectionInstructions: location.collectionInstructions,
       isActive: location.isActive,
-      serviceFeeType: location.serviceFeeType,
-      serviceFeeAmount: location.serviceFeeAmount,
-      serviceFeeFreeAbove: location.serviceFeeFreeAbove,
-      serviceFeeLabel: location.serviceFeeLabel,
     },
   });
 };
@@ -125,9 +113,6 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     const loc = await db.pickupLocation.findUnique({ where: { id: id! } });
     await db.pickupLocation.deleteMany({ where: { id: id!, shop } });
     if (loc) {
-      await deleteLocationRate(shop, loc.shopifyRateId, loc.name).catch((err) => {
-        console.error("[location-rate-delete]", err);
-      });
       // Only turn local pickup off if WE turned it on. A merchant may have had
       // pickup configured on that Shopify location long before installing this
       // app, and deleting a pickup point here must not stop their store taking
@@ -147,15 +132,6 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     return json({ error: "Location name must be 100 characters or less." }, { status: 400 });
   }
 
-  // Reject obviously bogus fee amounts so they don't sneak into Shopify variant prices
-  const feeAmount = parseFloat((form.get("serviceFeeAmount") as string) ?? "0");
-  if (Number.isNaN(feeAmount) || feeAmount < 0 || feeAmount > 10000) {
-    return json({ error: "Service fee must be between $0 and $10,000." }, { status: 400 });
-  }
-  const freeAbove = parseFloat((form.get("serviceFeeFreeAbove") as string) ?? "0");
-  if (Number.isNaN(freeAbove) || freeAbove < 0) {
-    return json({ error: "'Free above' threshold must be zero or positive." }, { status: 400 });
-  }
   const prepTime = parseInt((form.get("prepTimeMinutes") as string) ?? "60");
   if (Number.isNaN(prepTime) || prepTime < 0 || prepTime > 10080) {
     return json({ error: "Prep time must be between 0 and 10080 minutes (one week)." }, { status: 400 });
@@ -181,10 +157,6 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     prepTimeMinutes: prepTime,
     collectionInstructions: (form.get("collectionInstructions") as string) || "",
     isActive: form.get("isActive") === "true",
-    serviceFeeType: (form.get("serviceFeeType") as string) || "free",
-    serviceFeeAmount: feeAmount,
-    serviceFeeFreeAbove: freeAbove,
-    serviceFeeLabel: (form.get("serviceFeeLabel") as string) || "",
     shopifyLocationId: (form.get("shopifyLocationId") as string) || "",
   };
 
@@ -209,37 +181,26 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     }
   }
 
-  let savedId: string;
   if (id === "new") {
-    const created = await db.pickupLocation.create({ data });
-    savedId = created.id;
+    await db.pickupLocation.create({ data });
   } else {
     await db.pickupLocation.updateMany({ where: { id, shop }, data });
-    savedId = id!;
   }
 
-  const config = await db.shopConfig.findUnique({ where: { shop } });
-  if ((config?.checkoutMode ?? "native") === "native") {
-    // Push the change to Shopify's own local pickup settings. Awaited, not
-    // fire-and-forget: this IS the feature in native mode, and the merchant is
-    // about to look at a screen that claims it is on.
-    try {
-      await syncNativePickup(shop, session.accessToken ?? "");
-    } catch (err) {
-      console.error("[native-pickup-sync]", err);
-    }
-  } else {
-    // Sync the Shopify shipping rate for this location (idempotent, background)
-    syncLocationRate(shop, savedId).catch((err) => {
-      console.error("[location-rate-sync]", err);
-    });
+  // Push the change to Shopify's own local pickup settings. Awaited, not
+  // fire-and-forget: this IS the feature, and the merchant is about to look at
+  // a screen that claims pickup is on.
+  try {
+    await syncNativePickup(shop, session.accessToken ?? "");
+  } catch (err) {
+    console.error("[native-pickup-sync]", err);
   }
 
   return redirect("/app/locations");
 };
 
 export default function LocationFormPage() {
-  const { location, checkoutMode, shopifyLocations, shopifyLocationsError, taken } =
+  const { location, shopifyLocations, shopifyLocationsError, taken } =
     useLoaderData<typeof loader>();
   const navigate = useNavigate();
   const fetcher = useFetcher<{ error?: string }>();
@@ -258,10 +219,6 @@ export default function LocationFormPage() {
     (location?.hours as Hours) ?? defaultHours()
   );
   const [shopifyLocationId, setShopifyLocationId] = useState(location?.shopifyLocationId ?? "");
-  const [serviceFeeType, setServiceFeeType] = useState(location?.serviceFeeType ?? "free");
-  const [serviceFeeAmount, setServiceFeeAmount] = useState(String(location?.serviceFeeAmount ?? "0"));
-  const [serviceFeeFreeAbove, setServiceFeeFreeAbove] = useState(String(location?.serviceFeeFreeAbove ?? "0"));
-  const [serviceFeeLabel, setServiceFeeLabel] = useState(location?.serviceFeeLabel ?? "");
 
   const isSubmitting = fetcher.state !== "idle";
 
@@ -281,10 +238,6 @@ export default function LocationFormPage() {
     fd.set("collectionInstructions", instructions);
     fd.set("isActive", String(isActive));
     fd.set("hours", JSON.stringify(hours));
-    fd.set("serviceFeeType", serviceFeeType);
-    fd.set("serviceFeeAmount", serviceFeeAmount);
-    fd.set("serviceFeeFreeAbove", serviceFeeFreeAbove);
-    fd.set("serviceFeeLabel", serviceFeeLabel);
     fd.set("shopifyLocationId", shopifyLocationId);
     if (extra) Object.entries(extra).forEach(([k, v]) => fd.set(k, v));
     fetcher.submit(fd, { method: "POST" });
@@ -347,8 +300,7 @@ export default function LocationFormPage() {
           </Card>
         </Layout.Section>
 
-        {checkoutMode === "native" && (
-          <Layout.Section>
+        <Layout.Section>
             <Card>
               <BlockStack gap="400">
                 <Text variant="headingMd" as="h2">Shopify location</Text>
@@ -432,9 +384,8 @@ export default function LocationFormPage() {
                   </>
                 )}
               </BlockStack>
-            </Card>
-          </Layout.Section>
-        )}
+          </Card>
+        </Layout.Section>
 
         <Layout.Section>
           <Card>
@@ -462,58 +413,6 @@ export default function LocationFormPage() {
                 onChange={setIsActive}
                 helpText="Inactive locations won't appear as options at checkout."
               />
-            </BlockStack>
-          </Card>
-        </Layout.Section>
-
-        <Layout.Section>
-          <Card>
-            <BlockStack gap="400">
-              <Text variant="headingMd" as="h2">Pickup service fee</Text>
-              <Text as="p" tone="subdued">
-                Charge a fee for packing and preparing orders for collection, like supermarkets and electronics retailers.
-              </Text>
-              <Select
-                label="Fee type"
-                options={[
-                  { label: "Free pickup", value: "free" },
-                  { label: "Fixed fee", value: "fixed" },
-                  { label: "Percentage of order total", value: "percentage" },
-                ]}
-                value={serviceFeeType}
-                onChange={setServiceFeeType}
-              />
-              {serviceFeeType !== "free" && (
-                <>
-                  <InlineGrid columns={2} gap="400">
-                    <TextField
-                      label={serviceFeeType === "fixed" ? "Fee amount ($)" : "Fee percentage (%)"}
-                      value={serviceFeeAmount}
-                      onChange={setServiceFeeAmount}
-                      type="number"
-                      autoComplete="off"
-                      placeholder={serviceFeeType === "fixed" ? "5.00" : "3"}
-                    />
-                    <TextField
-                      label="Free above order total ($)"
-                      value={serviceFeeFreeAbove}
-                      onChange={setServiceFeeFreeAbove}
-                      type="number"
-                      autoComplete="off"
-                      placeholder="0"
-                      helpText="Set to 0 to always charge. Otherwise fee is waived for orders above this amount."
-                    />
-                  </InlineGrid>
-                  <TextField
-                    label="Fee label (shown to customer)"
-                    value={serviceFeeLabel}
-                    onChange={setServiceFeeLabel}
-                    autoComplete="off"
-                    placeholder="Packing fee"
-                    helpText="Leave blank for default: 'Pickup service fee'"
-                  />
-                </>
-              )}
             </BlockStack>
           </Card>
         </Layout.Section>

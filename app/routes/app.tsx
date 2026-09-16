@@ -17,15 +17,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   const config = await db.shopConfig.upsert({
     where: { shop: session.shop },
-    // Reaching the create branch means the row went missing or afterAuth never
-    // ran, so treat it as a fresh install and start on native pickup — the same
-    // choice ensureShopConfig makes. The column default stays "rates" for shops
-    // that predate native mode.
-    create: {
-      shop: session.shop,
-      accessToken: session.accessToken || "",
-      checkoutMode: "native",
-    },
+    create: { shop: session.shop, accessToken: session.accessToken || "" },
     update: { accessToken: session.accessToken || "" },
   });
 

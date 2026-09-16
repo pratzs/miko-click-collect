@@ -12,20 +12,20 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   // Reject obviously invalid shop values to avoid noisy DB lookups + scraping
   if (!shop || !/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/i.test(shop)) {
     return json(
-      { locations: [], serviceFeeVariantId: "" },
+      { locations: [] },
       { headers: { "Access-Control-Allow-Origin": "*" } },
     );
   }
 
   const config = await db.shopConfig.findUnique({
     where: { shop },
-    select: { serviceFeeVariantId: true, accessToken: true, setupCompletedAt: true },
+    select: { accessToken: true, setupCompletedAt: true },
   });
 
   // Self-heal: if setup never completed or the fee variant is missing, kick off
   // auto-setup in the background. The current request returns immediately with
   // what we have; the next request will see the freshly-created artefacts.
-  if (config?.accessToken && (!config.setupCompletedAt || !config.serviceFeeVariantId)) {
+  if (config?.accessToken && !config.setupCompletedAt) {
     runAutoSetup(shop, config.accessToken).catch((err) =>
       console.error("[public-locations self-heal] setup failed", err),
     );
@@ -44,16 +44,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       hours: true,
       prepTimeMinutes: true,
       collectionInstructions: true,
-      serviceFeeType: true,
-      serviceFeeAmount: true,
-      serviceFeeFreeAbove: true,
-      serviceFeeLabel: true,
-      shopifyFeeVariantId: true,
     },
   });
 
   return json(
-    { locations, serviceFeeVariantId: config?.serviceFeeVariantId ?? "" },
+    { locations },
     {
       headers: {
         "Access-Control-Allow-Origin": "*",

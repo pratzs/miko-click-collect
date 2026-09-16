@@ -8,42 +8,42 @@ datasource db {
 }
 
 model Session {
-  id            String    @id
-  shop          String
-  state         String
-  isOnline      Boolean   @default(false)
-  scope         String?
-  expires       DateTime?
-  accessToken   String
-  userId        BigInt?
-  firstName     String?
-  lastName      String?
-  email         String?
-  accountOwner  Boolean   @default(false)
-  locale        String?
-  collaborator          Boolean?  @default(false)
-  emailVerified         Boolean?  @default(false)
-  refreshToken          String?
-  refreshTokenExpires   DateTime?
+  id                  String    @id
+  shop                String
+  state               String
+  isOnline            Boolean   @default(false)
+  scope               String?
+  expires             DateTime?
+  accessToken         String
+  userId              BigInt?
+  firstName           String?
+  lastName            String?
+  email               String?
+  accountOwner        Boolean   @default(false)
+  locale              String?
+  collaborator        Boolean?  @default(false)
+  emailVerified       Boolean?  @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
 }
 
 model ShopConfig {
-  id          String   @id @default(cuid())
-  shop        String   @unique
-  accessToken String   @default("")
-  planName    String   @default("free")
+  id                 String  @id @default(cuid())
+  shop               String  @unique
+  accessToken        String  @default("")
+  planName           String  @default("free")
   // True when Shopify reports ShopPlan.partnerDevelopment. A Partner dev store
   // cannot take real orders, so it was never going to pay: grant the top plan so
   // affiliates can evaluate the real product. Re-checked on every app load and on
   // shop/update, so a store that converts to a paid plan loses the grant.
-  isDevelopmentStore      Boolean   @default(false)
-  shopName    String   @default("")
-  currency    String   @default("NZD")
-  timezone    String   @default("Pacific/Auckland")
+  isDevelopmentStore Boolean @default(false)
+  shopName           String  @default("")
+  currency           String  @default("NZD")
+  timezone           String  @default("Pacific/Auckland")
 
   // Email identity
-  senderName     String @default("")
-  replyToEmail   String @default("")
+  senderName   String @default("")
+  replyToEmail String @default("")
 
   // BYO SMTP (Starter+)
   smtpHost      String  @default("")
@@ -63,46 +63,21 @@ model ShopConfig {
   onboardingCompleted Boolean @default(false)
 
   // Notification settings
-  notifyReadySubject     String @default("Your order is ready for collection")
-  notifyPickedUpSubject  String @default("Thanks for collecting your order!")
-  notifyMerchantEmail    String @default("")
+  notifyReadySubject    String @default("Your order is ready for collection")
+  notifyPickedUpSubject String @default("Thanks for collecting your order!")
+  notifyMerchantEmail   String @default("")
 
   // Order progress steps - merchant can toggle which steps they use
   useProcessingStep Boolean @default(true)
   usePackingStep    Boolean @default(true)
 
-  // How the customer chooses pickup.
-  //
-  //   "native" — Shopify's own local pickup. The pickup option and the location
-  //     list are rendered by Shopify inside checkout, on EVERY plan. No theme
-  //     edit, nothing to bypass with a Buy Now button. Cannot charge a fee.
-  //   "rates"  — our per-location shipping rates, chosen in our cart-page block
-  //     (all plans) or our checkout extension (Shopify Plus only). Supports a
-  //     per-location fee.
-  //
-  // NEW installs are set to "native" explicitly, in ensureShopConfig — that is
-  // the better default, because "rates" without Plus depends entirely on the
-  // merchant adding our cart block to their theme and any dynamic checkout
-  // button skips the cart page completely.
-  //
-  // The COLUMN default is "rates" on purpose, and must stay that way: every
-  // shop that existed before this column did is running rates mode, with live
-  // per-location shipping rates in their store. A "native" column default would
-  // silently reclassify all of them on the next deploy, leaving those rates
-  // orphaned at checkout and pickup mapped to nothing.
-  checkoutMode String @default("rates")
-
-  // Shopify Function IDs (set after first deploy)
-  deliveryCustomizationId         String @default("")
-  deliveryCustomizationFunctionId String @default("")
-
-  // Auto-setup artefacts (created on app install)
-  serviceFeeProductId    String @default("")  // gid://shopify/Product/...
-  serviceFeeVariantId    String @default("")  // gid://shopify/ProductVariant/...
-  pickupShippingRateId   String @default("")  // gid://shopify/DeliveryRateDefinition/...
-  setupCompletedAt       DateTime?
-  setupError             String @default("")
-  cartBlockLastSeenAt    DateTime?
+  // Retired "rates" design. Kept ONLY so setup can find and clean up what it
+  // left in a merchant's store (a purchasable Service Fee product and
+  // "Click and Collect - ..." delivery rates). Nothing writes these any more.
+  serviceFeeProductId String    @default("")
+  serviceFeeVariantId String    @default("")
+  setupCompletedAt    DateTime?
+  setupError          String    @default("")
 
   // Subscription
   trialStartedAt          DateTime?
@@ -117,34 +92,28 @@ model ShopConfig {
 }
 
 model PickupLocation {
-  id        String  @id @default(cuid())
-  shop      String
-  name      String
-  address   String  @default("")
-  city      String  @default("")
-  postcode  String  @default("")
-  phone     String  @default("")
-  email     String  @default("")
+  id       String @id @default(cuid())
+  shop     String
+  name     String
+  address  String @default("")
+  city     String @default("")
+  postcode String @default("")
+  phone    String @default("")
+  email    String @default("")
 
-  hours Json @default("{}")
-  prepTimeMinutes Int @default(60)
+  hours                  Json   @default("{}")
+  prepTimeMinutes        Int    @default(60)
   collectionInstructions String @default("")
 
-  // Service fee config (like Noel Leeming / Woolworths NZ)
-  serviceFeeType      String @default("free")  // free | fixed | percentage
-  serviceFeeAmount    Float  @default(0)        // dollar amount or percentage
-  serviceFeeFreeAbove Float  @default(0)        // free when order is above this amount (0 = always charge)
-  serviceFeeLabel     String @default("")       // custom label e.g. "Packing fee"
-  shopifyRateId       String @default("")       // Shopify shipping rate ID synced to this location
-  shopifyFeeVariantId String @default("")       // Variant on the service fee product priced at this location's fee
-  shopifyFeeVariantPrice String @default("")    // Last-synced price string for change detection
+  // Retired with the "rates" design; kept only so cleanup can find the old
+  // per-location delivery rate and remove it from the merchant's store.
+  shopifyRateId String @default("")
 
-  // The real Shopify Location this pickup point is. Required for "native"
-  // checkout mode: Shopify's local pickup is switched on per Location, and the
-  // order comes back to us carrying that Location, not our own record's id.
-  // Empty means the merchant has not mapped this pickup point yet, and it
-  // cannot appear in checkout in native mode.
-  shopifyLocationId  String  @default("")       // gid://shopify/Location/...
+  // The real Shopify Location this pickup point is. Shopify switches local
+  // pickup on per Location, and a pickup order comes back carrying that
+  // Location, not our own record's id. Empty means the merchant has not linked
+  // this pickup point yet, so it cannot appear at checkout.
+  shopifyLocationId  String  @default("") // gid://shopify/Location/...
   // Mirrors what we last told Shopify, so the locations screen can show the
   // truth rather than our intent.
   localPickupEnabled Boolean @default(false)
@@ -194,12 +163,12 @@ model ClickCollectOrder {
   expectedReadyAt DateTime?
 
   // Progress timestamps
-  confirmedAt   DateTime?
-  processingAt  DateTime?
-  packingAt     DateTime?
-  readyAt       DateTime?
-  pickedUpAt    DateTime?
-  cancelledAt   DateTime?
+  confirmedAt  DateTime?
+  processingAt DateTime?
+  packingAt    DateTime?
+  readyAt      DateTime?
+  pickedUpAt   DateTime?
+  cancelledAt  DateTime?
 
   readyNotificationSentAt    DateTime?
   pickedUpNotificationSentAt DateTime?

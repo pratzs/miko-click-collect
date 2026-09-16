@@ -31,10 +31,6 @@ export async function ensureShopConfig(shop: string, accessToken: string) {
       shopName,
       brandName: shopName,
       senderName: shopName,
-      // Only NEW shops start on native pickup. The column default is "rates"
-      // so that shops installed before native mode existed keep the setup
-      // that is already live in their store — see the schema comment.
-      checkoutMode: "native",
     },
   });
 }

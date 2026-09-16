@@ -66,10 +66,9 @@ api_version = "2026-04"
 #   marker of ours; the only evidence that it IS a pickup order is the
 #   fulfillment order's PICK_UP method and assigned location. Reading
 #   `order.fulfillmentOrders` needs the read scope (a pickup location is a
-#   merchant-managed location). The write scope is what lets us auto-fulfill the
-#   virtual service-fee line in rates mode — that feature was silently failing
-#   with the same ACCESS_DENIED before this was added.
-scopes = "read_products,write_products,read_orders,write_orders,write_delivery_customizations,read_delivery_customizations,read_shipping,write_shipping,read_locations,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_publications,write_publications"
+#   merchant-managed location). The write scope lets the app close out a pickup
+#   fulfillment when the order is marked collected.
+scopes = "read_products,write_products,read_orders,write_orders,read_shipping,write_shipping,read_locations,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_publications,write_publications"
 optional_scopes = [ ]
 use_legacy_install_flow = false
 
