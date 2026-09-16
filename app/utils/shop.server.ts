@@ -1,14 +1,21 @@
 import { db } from "../db.server";
 
+/**
+ * The shop's row, created on first install.
+ *
+ * Note what this deliberately does NOT do any more: keep its own copy of the
+ * access token. It used to, and that copy went stale and started returning
+ * "Invalid API key or access token" while the real one in session storage kept
+ * working perfectly — because under managed install Shopify rotates the offline
+ * token and only the session store is updated. Nothing in the app read the
+ * duplicate, so nothing broke, but a dead credential sitting in a table that
+ * gets read for other reasons is a trap for the next person and a second copy
+ * of a secret for no benefit. The token is passed in for the one call below and
+ * not written down.
+ */
 export async function ensureShopConfig(shop: string, accessToken: string) {
   const existing = await db.shopConfig.findUnique({ where: { shop } });
-  if (existing) {
-    await db.shopConfig.update({
-      where: { shop },
-      data: { accessToken },
-    });
-    return existing;
-  }
+  if (existing) return existing;
 
   // Fetch shop name from Shopify
   let shopName = shop;
@@ -27,7 +34,6 @@ export async function ensureShopConfig(shop: string, accessToken: string) {
   return db.shopConfig.create({
     data: {
       shop,
-      accessToken,
       shopName,
       brandName: shopName,
       senderName: shopName,

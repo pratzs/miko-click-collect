@@ -87,17 +87,25 @@ export async function findNativePickupLocationId(
  * This is the name staff read out at the counter, so an empty one is not
  * cosmetic — seen on a real pickup order, where Shopify sent no customer name
  * at all and the dashboard showed a blank where the name should be. Guest
- * checkouts routinely carry the name only on an address, and a pickup order has
- * no shipping address, so this falls through every place Shopify puts it.
+ * checkouts routinely carry the name only on an address, so this falls through
+ * every place Shopify puts it.
+ *
+ * The ORDER's own name wins over the customer account's. A real order showed
+ * why: the account was called "Mitchell Admin" from some long-forgotten import
+ * while the person at checkout typed "Pratham Test", and Shopify's own thank
+ * you page said "Thank you, Pratham!". Reading the account first meant our
+ * counter screen disagreed with the receipt in the customer's hand — and on a
+ * shared household or business account it would disagree with the person
+ * standing there. Same order as the backfill, so both paths agree.
  */
 function customerNameFrom(order: ShopifyOrderPayload): string {
   const nameFrom = (a?: { first_name?: string; last_name?: string; name?: string }) =>
     [a?.first_name, a?.last_name].filter(Boolean).join(" ").trim() || (a?.name ?? "").trim();
 
   return (
-    nameFrom(order.customer) ||
-    nameFrom(order.shipping_address) ||
     nameFrom(order.billing_address) ||
+    nameFrom(order.shipping_address) ||
+    nameFrom(order.customer) ||
     ""
   );
 }

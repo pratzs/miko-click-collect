@@ -17,8 +17,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   const config = await db.shopConfig.upsert({
     where: { shop: session.shop },
-    create: { shop: session.shop, accessToken: session.accessToken || "" },
-    update: { accessToken: session.accessToken || "" },
+    create: { shop: session.shop },
+    update: {},
   });
 
   // Keep planName in step with what Shopify actually bills. Under Shopify App

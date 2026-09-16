@@ -30,7 +30,6 @@ model Session {
 model ShopConfig {
   id                 String  @id @default(cuid())
   shop               String  @unique
-  accessToken        String  @default("")
   planName           String  @default("free")
   // True when Shopify reports ShopPlan.partnerDevelopment. A Partner dev store
   // cannot take real orders, so it was never going to pay: grant the top plan so
