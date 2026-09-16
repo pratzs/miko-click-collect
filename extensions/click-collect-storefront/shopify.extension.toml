@@ -1,0 +1,7 @@
+api_version = "2026-04"
+uid = "ad825d13-5baa-da8b-8b65-9048af2aa5782c01e204"
+
+[[extensions]]
+name = "Click & Collect - Storefront"
+handle = "click-collect-storefront"
+type = "theme"

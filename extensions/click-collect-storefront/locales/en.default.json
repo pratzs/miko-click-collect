@@ -1,0 +1,7 @@
+{
+  "pickup": {
+    "available_at": "Pickup available at",
+    "unavailable": "Pickup not available for this item",
+    "view_stores": "View store information"
+  }
+}

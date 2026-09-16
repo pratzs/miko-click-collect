@@ -1,0 +1,28 @@
+{%- comment -%}
+  App BLOCK. The merchant drags this where they want it in the product section.
+  For merchants who never open the theme editor, the app embed does the same job
+  automatically — see pickup-embed.liquid.
+{%- endcomment -%}
+
+{%- if product -%}
+  <div class="miko-cc-block" style="--miko-cc-accent: {{ block.settings.accent }};">
+    {% render 'miko-pickup', product: product %}
+  </div>
+{%- endif -%}
+
+{% schema %}
+{
+  "name": "Pickup availability",
+  "target": "section",
+  "stylesheet": "miko-pickup.css",
+  "javascript": "miko-pickup.js",
+  "settings": [
+    {
+      "type": "color",
+      "id": "accent",
+      "label": "Accent colour",
+      "default": "#1a7f4b"
+    }
+  ]
+}
+{% endschema %}

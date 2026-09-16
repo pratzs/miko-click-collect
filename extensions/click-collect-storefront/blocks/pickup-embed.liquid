@@ -1,0 +1,56 @@
+{%- comment -%}
+  App EMBED. This is the one that matters commercially.
+
+  Shopify will not let a public app write theme files at all — themeFilesUpsert
+  needs an exemption we do not have — so the app cannot switch on the theme's own
+  pickup block for the merchant. And themes disagree about that block: Dawn
+  renders pickup unconditionally, Horizon ships with show_pickup_availability
+  set to false, so a brand new Horizon store has pickup working perfectly at
+  checkout and every product page silent about it. Verified on a live storefront:
+  the product page said nothing at all.
+
+  Sending the merchant into the theme editor to find a setting they have never
+  heard of is exactly the step that loses them. An app embed is the one thing
+  Shopify does allow: the merchant enables it once, from a deep link inside our
+  app, and it then renders on every product page of any theme without a template
+  being edited.
+{%- endcomment -%}
+
+{%- if product -%}
+  <div
+    class="miko-cc-embed"
+    data-miko-cc-embed
+    data-position="{{ block.settings.position }}"
+    style="--miko-cc-accent: {{ block.settings.accent }};"
+    hidden
+  >
+    {% render 'miko-pickup', product: product %}
+  </div>
+{%- endif -%}
+
+{% schema %}
+{
+  "name": "Click & Collect pickup",
+  "target": "body",
+  "stylesheet": "miko-pickup.css",
+  "javascript": "miko-pickup.js",
+  "settings": [
+    {
+      "type": "select",
+      "id": "position",
+      "label": "Where to show it",
+      "options": [
+        { "value": "after_buy", "label": "Under the Add to cart button" },
+        { "value": "before_buy", "label": "Above the Add to cart button" }
+      ],
+      "default": "after_buy"
+    },
+    {
+      "type": "color",
+      "id": "accent",
+      "label": "Accent colour",
+      "default": "#1a7f4b"
+    }
+  ]
+}
+{% endschema %}

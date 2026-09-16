@@ -27,7 +27,11 @@ import { db } from "../db.server";
 import { getPlan } from "../utils/plans";
 import { DEV_STORE_PLAN } from "../dev-store.server";
 import { reconcilePlan } from "../utils/billing.server";
-import { checkPickupVisibility, themeEditorProductUrl } from "../utils/storefront-visibility.server";
+import {
+  checkPickupVisibility,
+  themeEditorProductUrl,
+  enablePickupBlockUrl,
+} from "../utils/storefront-visibility.server";
 import { runAutoSetup } from "../utils/auto-setup.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -108,6 +112,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const themeEditorUrl =
     pickupVisibility.state === "hidden" ? themeEditorProductUrl(shop, pickupVisibility.themeId) : null;
 
+  // Switching on OUR block works whatever the theme is, so it is the button we
+  // lead with; the theme's own setting stays as the alternative for merchants
+  // who would rather use it.
+  const enableBlockUrl = enablePickupBlockUrl(shop, process.env.SHOPIFY_API_KEY ?? "");
+
   return json({
     planName,
     plan,
@@ -120,6 +129,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     hasEmailConfig,
     pickupVisibility,
     themeEditorUrl,
+    enableBlockUrl,
     recentOrders: orders.map((o) => ({
       id: o.id,
       orderName: o.shopifyOrderName,
@@ -202,7 +212,7 @@ export default function DashboardPage() {
   const {
     planName, plan, shopHandle, locationCount,
     pendingCount, readyCount, pickedUpCount, totalOrderCount,
-    hasEmailConfig, pickupVisibility, themeEditorUrl, recentOrders,
+    hasEmailConfig, pickupVisibility, themeEditorUrl, enableBlockUrl, recentOrders,
   } = useLoaderData<typeof loader>();
   const navigate = useNavigate();
   const step1Done = locationCount > 0;
@@ -330,7 +340,13 @@ export default function DashboardPage() {
               tone="warning"
               title="Your product pages don't mention pickup"
               action={{
-                content: "Open my product page settings",
+                content: "Show pickup on my product pages",
+                onAction: () => {
+                  if (window.top) window.top.location.href = enableBlockUrl;
+                },
+              }}
+              secondaryAction={{
+                content: "Use my theme's own setting instead",
                 onAction: () => {
                   if (window.top) window.top.location.href = themeEditorUrl;
                 },
@@ -340,13 +356,13 @@ export default function DashboardPage() {
                 <Text as="p">
                   Pickup works at checkout, but shoppers browsing your products never see it
                   offered, and that is where they decide. Your theme ({pickupVisibility.themeName})
-                  ships with Shopify&apos;s pickup block switched off.
+                  ships with Shopify&apos;s own pickup block switched off.
                 </Text>
                 <Text as="p">
-                  Shopify does not let apps change theme settings, so this one is yours to tick.
-                  The button opens your product template: select the <b>buy buttons</b> block and
-                  turn on <b>Pickup availability</b>. Every product page then shows
-                  &quot;Pickup available at your store&quot; with your preparation time.
+                  Shopify does not allow any app to change a theme, so this last step has to be
+                  yours. The button opens your theme with our pickup block already selected: switch
+                  it on and press <b>Save</b>. Product pages then show which of your stores has the
+                  item and how soon it can be collected.
                 </Text>
               </BlockStack>
             </Banner>

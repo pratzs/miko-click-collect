@@ -128,20 +128,47 @@ async function lookUpPickupVisibility(
 }
 
 /**
- * Deep link straight to the product template in the theme editor.
+ * One click that switches our pickup block on, rather than a scavenger hunt.
  *
- * The app cannot do this one for the merchant, and that is not for want of
- * trying. It briefly shipped a button that flipped the setting itself, which
- * worked when tested with a merchant's own token and then failed with the
- * app's:
+ * The app cannot do this for the merchant, and that is not for want of trying.
+ * It briefly shipped a button that edited the theme itself, which worked when
+ * tested with a merchant's own token and then failed with the app's:
  *
  *   Access denied for themeFilesUpsert field. Required access: The user needs
  *   write_themes AND AN EXEMPTION FROM SHOPIFY to modify theme files.
  *
- * So theme files are closed to public apps by default, `write_themes` alone
- * buys nothing, and the scope was dropped again rather than asking merchants
- * for a permission the app cannot use. The next best thing is to land them on
- * the exact template with the exact tick to make, which is what this does.
+ * So theme files are closed to public apps, `write_themes` alone buys nothing,
+ * and the scope was dropped rather than asking merchants for a permission the
+ * app cannot use. What Shopify does allow is this deep link: it opens the theme
+ * editor with our app embed already selected, so the merchant toggles it on and
+ * hits Save. Two clicks, from a button inside our app, instead of hunting for a
+ * theme setting they have never heard of.
+ *
+ * The id in `activateAppId` is the app's API key — the same value as `client_id`
+ * in shopify.app.toml — NOT the extension uid the CLI writes into the
+ * extension's own toml. Shopify's docs are explicit that the UUID form is
+ * deprecated. Getting this wrong fails silently: the editor opens, drops the
+ * parameter, and activates nothing.
+ */
+export function enablePickupBlockUrl(shop: string, apiKey: string): string {
+  const storeHandle = shop.replace(/\.myshopify\.com$/, "");
+  // The app BLOCK, dropped into the product template's main section, rather
+  // than the app embed. An embed renders at the end of <body> and Shopify
+  // documents it as having "only the Global Liquid scope", which leaves it
+  // genuinely unclear whether `product` is in scope there — and a pickup block
+  // that cannot see the product is worth nothing. An app block placed in the
+  // product section has no such doubt, and it lands next to the buy button
+  // instead of having to be moved there by script.
+  return (
+    `https://admin.shopify.com/store/${storeHandle}/themes/current/editor` +
+    `?template=product&addAppBlockId=${apiKey}/pickup-availability&target=mainSection`
+  );
+}
+
+/**
+ * The theme's OWN pickup setting, for merchants who would rather use that than
+ * our block. Kept because a merchant already running Dawn has pickup showing
+ * natively and does not need anything from us.
  */
 export function themeEditorProductUrl(shop: string, themeId: string): string {
   const storeHandle = shop.replace(/\.myshopify\.com$/, "");

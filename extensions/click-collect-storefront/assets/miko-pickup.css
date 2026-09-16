@@ -1,0 +1,102 @@
+/* Deliberately quiet. This sits inside somebody else's theme, so it inherits
+   the theme's font and colour and adds only structure — a block that shouts in
+   its own typeface is the thing merchants uninstall. */
+.miko-cc {
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.miko-cc__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.85rem 0;
+}
+
+.miko-cc__icon {
+  width: 1.15rem;
+  height: 1.15rem;
+  flex: 0 0 auto;
+  margin-top: 0.1rem;
+  fill: var(--miko-cc-accent, #1a7f4b);
+}
+
+.miko-cc__row--muted .miko-cc__icon {
+  fill: currentColor;
+  opacity: 0.45;
+}
+
+.miko-cc__text {
+  min-width: 0;
+}
+
+.miko-cc__title {
+  margin: 0;
+}
+
+.miko-cc__row--muted .miko-cc__title {
+  opacity: 0.65;
+}
+
+.miko-cc__more {
+  opacity: 0.7;
+  white-space: nowrap;
+}
+
+.miko-cc__time {
+  margin: 0.15rem 0 0;
+  opacity: 0.7;
+  font-size: 0.875em;
+}
+
+.miko-cc__details {
+  margin: 0 0 0.35rem 1.75rem;
+}
+
+.miko-cc__summary {
+  cursor: pointer;
+  font-size: 0.875em;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  opacity: 0.8;
+}
+
+.miko-cc__summary:hover {
+  opacity: 1;
+}
+
+.miko-cc__stores {
+  padding-top: 0.6rem;
+  display: grid;
+  gap: 0.85rem;
+  /* A chain can have dozens of stores in range. Scroll the list rather than
+     pushing the buy button off the screen. */
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.miko-cc__store-name {
+  margin: 0;
+  font-weight: 600;
+}
+
+.miko-cc__store-time,
+.miko-cc__store-address {
+  margin: 0.1rem 0 0;
+  opacity: 0.7;
+  font-size: 0.875em;
+}
+
+.miko-cc__store-address p {
+  margin: 0;
+}
+
+/* The embed is hidden until the script has placed it, so it never flashes at
+   the bottom of the page before moving. */
+.miko-cc-embed[hidden] {
+  display: none !important;
+}
+
+.miko-cc-embed {
+  margin: 0.75rem 0;
+}

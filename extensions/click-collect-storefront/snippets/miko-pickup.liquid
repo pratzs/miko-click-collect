@@ -1,0 +1,78 @@
+{%- comment -%}
+  Pickup availability, rendered for EVERY variant up front.
+
+  Why every variant rather than just the selected one: a shopper changing size
+  or colour must see the answer change with it, and themes disagree violently
+  about how they announce a variant change. Rendering them all and letting a few
+  lines of JS reveal the right one works the same on Dawn, Horizon, and whatever
+  the merchant is running, with no fetch and no theme-specific event plumbing.
+
+  `store_availabilities` is Shopify's own data, so this cannot drift from what
+  checkout will actually offer, and it is inventory-aware by definition: a
+  location that does not stock the variant produces no entry, so the block never
+  promises a store the shopper would then be turned away from.
+{%- endcomment -%}
+
+<div
+  class="miko-cc"
+  data-miko-cc
+  data-selected="{{ product.selected_or_first_available_variant.id }}"
+>
+  {%- for variant in product.variants -%}
+    {%- liquid
+      assign pickup_places = variant.store_availabilities | where: 'pick_up_enabled', true
+      assign in_stock_places = pickup_places | where: 'available', true
+    -%}
+    <div
+      class="miko-cc__variant"
+      data-miko-cc-variant="{{ variant.id }}"
+      {% if variant.id != product.selected_or_first_available_variant.id %}hidden{% endif %}
+    >
+      {%- if in_stock_places.size > 0 -%}
+        {%- assign first = in_stock_places.first -%}
+        <div class="miko-cc__row">
+          <svg class="miko-cc__icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+            <path d="M10 2a5 5 0 0 0-5 5c0 3.6 4.3 10.1 4.5 10.4a.6.6 0 0 0 1 0C10.7 17.1 15 10.6 15 7a5 5 0 0 0-5-5Zm0 7a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z"/>
+          </svg>
+          <div class="miko-cc__text">
+            <p class="miko-cc__title">
+              {{ 'pickup.available_at' | t }} <strong>{{ first.location.name }}</strong>
+              {%- if in_stock_places.size > 1 %}
+                <span class="miko-cc__more">+ {{ in_stock_places.size | minus: 1 }} more</span>
+              {%- endif -%}
+            </p>
+            {%- if first.pick_up_time != blank -%}
+              <p class="miko-cc__time">{{ first.pick_up_time }}</p>
+            {%- endif -%}
+          </div>
+        </div>
+
+        <details class="miko-cc__details">
+          <summary class="miko-cc__summary">{{ 'pickup.view_stores' | t }}</summary>
+          <div class="miko-cc__stores">
+            {%- for place in in_stock_places limit: 25 -%}
+              <div class="miko-cc__store">
+                <p class="miko-cc__store-name">{{ place.location.name }}</p>
+                {%- if place.pick_up_time != blank -%}
+                  <p class="miko-cc__store-time">{{ place.pick_up_time }}</p>
+                {%- endif -%}
+                {%- if place.location.address != blank -%}
+                  <p class="miko-cc__store-address">
+                    {{ place.location.address | format_address }}
+                  </p>
+                {%- endif -%}
+              </div>
+            {%- endfor -%}
+          </div>
+        </details>
+      {%- else -%}
+        <div class="miko-cc__row miko-cc__row--muted">
+          <svg class="miko-cc__icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+            <path d="M10 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16Zm0 3.5c.4 0 .75.35.75.75v4.5a.75.75 0 0 1-1.5 0v-4.5c0-.4.35-.75.75-.75Zm0 8a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z"/>
+          </svg>
+          <p class="miko-cc__title">{{ 'pickup.unavailable' | t }}</p>
+        </div>
+      {%- endif -%}
+    </div>
+  {%- endfor -%}
+</div>
