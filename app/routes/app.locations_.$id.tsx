@@ -212,7 +212,16 @@ export default function LocationFormPage() {
   const [postcode, setPostcode] = useState(location?.postcode ?? "");
   const [phone, setPhone] = useState(location?.phone ?? "");
   const [email, setEmail] = useState(location?.email ?? "");
-  const [prepTime, setPrepTime] = useState(String(location?.prepTimeMinutes ?? 60));
+  // Snap whatever is stored onto one of Shopify's six times. A location saved
+  // under the old menu can hold 30 or 480 minutes, which are not options any
+  // more: without this the dropdown falls back to showing the first option
+  // while the banner reports what is really saved, and the two disagree on
+  // screen. Snapping makes the menu, the banner and the saved value agree.
+  const [prepTime, setPrepTime] = useState(() => {
+    const stored = location?.prepTimeMinutes ?? 60;
+    const snapped = PICKUP_TIME_MINUTES.find((o) => o.value === prepTimeToPickupTime(stored));
+    return String(snapped?.minutes ?? 60);
+  });
   const [instructions, setInstructions] = useState(location?.collectionInstructions ?? "");
   const [isActive, setIsActive] = useState(location?.isActive ?? true);
   const [hours, setHours] = useState<Hours>(
