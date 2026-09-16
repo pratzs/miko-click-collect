@@ -308,9 +308,17 @@ async function fulfillOrder(
 
     for (const fo of fulfillmentOrders) {
       if (fo.status === "CLOSED" || fo.status === "CANCELLED") continue;
+      // `quantity` is required, not optional. Sending only the id made
+      // Shopify reject the whole mutation with INVALID_VARIABLE — "Expected
+      // value to not be null" — which is why no pickup order this app has ever
+      // marked collected actually got fulfilled. Confirmed on a live order:
+      // before and after the call, displayFulfillmentStatus was UNFULFILLED.
       const lineItems = fo.lineItems.nodes
         .filter((li: { remainingQuantity: number }) => li.remainingQuantity > 0)
-        .map((li: { id: string }) => ({ id: li.id }));
+        .map((li: { id: string; remainingQuantity: number }) => ({
+          id: li.id,
+          quantity: li.remainingQuantity,
+        }));
 
       if (lineItems.length === 0) continue;
       attempted++;
