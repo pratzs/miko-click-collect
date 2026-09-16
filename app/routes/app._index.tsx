@@ -27,6 +27,7 @@ import { db } from "../db.server";
 import { getPlan } from "../utils/plans";
 import { DEV_STORE_PLAN } from "../dev-store.server";
 import { reconcilePlan } from "../utils/billing.server";
+import { checkPickupVisibility, themeEditorProductUrl } from "../utils/storefront-visibility.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
@@ -77,6 +78,18 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     (config?.replyToEmail || config?.smtpHost) && (process.env.RESEND_API_KEY || config?.smtpHost)
   );
 
+  // Checkout can be working perfectly while every product page stays silent
+  // about pickup, because whether Shopify's "Pickup available at ..." block
+  // renders is a THEME setting and some themes ship with it off. That is the
+  // difference between a shopper knowing pickup exists and never finding out.
+  const pickupVisibility = locationCount > 0
+    ? await checkPickupVisibility(shop, session.accessToken ?? "")
+    : ({ state: "unknown" } as const);
+  const themeEditorUrl =
+    pickupVisibility.state === "hidden"
+      ? themeEditorProductUrl(shop, pickupVisibility.themeId)
+      : null;
+
   return json({
     planName,
     plan,
@@ -87,6 +100,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     pickedUpCount,
     totalOrderCount,
     hasEmailConfig,
+    pickupVisibility,
+    themeEditorUrl,
     recentOrders: orders.map((o) => ({
       id: o.id,
       orderName: o.shopifyOrderName,
@@ -169,7 +184,7 @@ export default function DashboardPage() {
   const {
     planName, plan, shopHandle, locationCount,
     pendingCount, readyCount, pickedUpCount, totalOrderCount,
-    hasEmailConfig, recentOrders,
+    hasEmailConfig, pickupVisibility, themeEditorUrl, recentOrders,
   } = useLoaderData<typeof loader>();
   const navigate = useNavigate();
 
@@ -300,6 +315,35 @@ export default function DashboardPage() {
       ]}
     >
       <Layout>
+        {pickupVisibility.state === "hidden" && themeEditorUrl && (
+          <Layout.Section>
+            <Banner
+              tone="warning"
+              title="Your product pages don't mention pickup"
+              action={{
+                content: "Turn it on in your theme",
+                onAction: () => {
+                  if (window.top) window.top.location.href = themeEditorUrl;
+                },
+              }}
+            >
+              <BlockStack gap="200">
+                <Text as="p">
+                  Pickup works at checkout, but shoppers browsing your products never see it
+                  offered. Your theme ({pickupVisibility.themeName}) has Shopify&apos;s pickup
+                  block switched off.
+                </Text>
+                <Text as="p">
+                  Turning it on shows &quot;Pickup available at your store&quot; with the
+                  preparation time on every product page, which is where shoppers decide. Open
+                  the product template, select the buy buttons block, and tick Pickup
+                  availability.
+                </Text>
+              </BlockStack>
+            </Banner>
+          </Layout.Section>
+        )}
+
         {/* Setup progress (shown until all steps are done) */}
         {!allDone && (
           <Layout.Section>
