@@ -246,12 +246,17 @@ export async function backfillCustomerContact({
 }): Promise<{ customerName: string; customerPhone: string } | null> {
   if (!admin || !orderGid) return null;
   try {
+    // Billing address only, deliberately. Reading `order.customer` through
+    // GraphQL needs the `read_customers` scope — "Access denied for customer
+    // field" — and this app has no business holding a merchant's whole customer
+    // database to put a name on a collection slip. The billing name is also the
+    // better answer: it is the person who paid, where the account name can be
+    // some long-forgotten profile.
     const res = await admin.graphql(
       `#graphql
       query OrderContact($id: ID!) {
         order(id: $id) {
           phone
-          customer { firstName lastName phone }
           billingAddress { firstName lastName name phone }
         }
       }`,
@@ -266,8 +271,8 @@ export async function backfillCustomerContact({
     const join = (a?: { firstName?: string | null; lastName?: string | null; name?: string | null }) =>
       [a?.firstName, a?.lastName].filter(Boolean).join(" ").trim() || (a?.name ?? "").trim();
 
-    const customerName = join(o.customer) || join(o.billingAddress) || "";
-    const customerPhone = o.customer?.phone ?? o.billingAddress?.phone ?? o.phone ?? "";
+    const customerName = join(o.billingAddress) || "";
+    const customerPhone = o.billingAddress?.phone ?? o.phone ?? "";
 
     // Still nothing to learn: access has not been granted yet, or this shopper
     // genuinely gave no name. Either way, do not write an empty string over an
