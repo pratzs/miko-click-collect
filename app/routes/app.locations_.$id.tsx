@@ -26,7 +26,7 @@ import {
   disableLocalPickup,
   type ShopifyLocation,
 } from "../utils/native-pickup.server";
-import { prepTimeToPickupTime, pickupTimeLabel } from "../utils/pickup-time";
+import { PICKUP_TIME_MINUTES, prepTimeToPickupTime, pickupTimeLabel } from "../utils/pickup-time";
 
 const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 const DAY_LABELS: Record<string, string> = {
@@ -243,14 +243,16 @@ export default function LocationFormPage() {
     fetcher.submit(fd, { method: "POST" });
   }
 
-  const prepTimeOptions = [
-    { label: "30 minutes", value: "30" },
-    { label: "1 hour", value: "60" },
-    { label: "2 hours", value: "120" },
-    { label: "4 hours", value: "240" },
-    { label: "Same day (end of day)", value: "480" },
-    { label: "Next day", value: "1440" },
-  ];
+  // Exactly the times Shopify can show a shopper, so what the merchant picks
+  // here is word for word what appears on the product page and at checkout.
+  // The old list had "30 minutes" and "Same day (end of day)", which Shopify
+  // cannot express: a merchant promising same day had their customers told
+  // "Usually ready in 24 hours". Offering a promise the platform will not
+  // repeat is worse than offering fewer choices.
+  const prepTimeOptions = PICKUP_TIME_MINUTES.map((o) => ({
+    label: o.label.replace(/^Usually ready in /, "Ready in "),
+    value: String(o.minutes),
+  }));
 
   return (
     <Page
@@ -369,10 +371,8 @@ export default function LocationFormPage() {
                     <Banner tone="info">
                       <BlockStack gap="200">
                         <Text as="p">
-                          Customers will see &quot;{pickupTimeLabel(prepTimeToPickupTime(parseInt(prepTime) || 60))}&quot;
-                          at checkout. Shopify only offers a fixed set of times, so we round your
-                          preparation time up to the nearest one. Your own emails and dashboard
-                          still use the exact time.
+                          Shoppers will see &quot;{pickupTimeLabel(prepTimeToPickupTime(parseInt(prepTime) || 60))}&quot;
+                          on the product page and at checkout.
                         </Text>
                         <Text as="p" tone="subdued">
                           Shopify only offers this location when the items ordered can be
