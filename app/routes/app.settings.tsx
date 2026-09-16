@@ -284,7 +284,20 @@ export default function SettingsPage() {
                     The customer picks their store in our own selector, and each location gets
                     its own delivery rate at checkout so you can charge a pickup fee.
                   </Text>
-                  {data.shopPlan && !data.shopPlan.supportsCheckoutExtensions && (
+                  {data.shopPlan?.partnerDevelopment && !data.shopPlan.supportsCheckoutExtensions && (
+                    <Banner tone="info" title="Development store — check your own checkout">
+                      <Text as="p">
+                        Shopify reports this store&apos;s plan as {data.shopPlan.displayName}.
+                        Whether apps can add content to the checkout page on a development store
+                        depends on the plan it was created with, so place a test order and
+                        confirm the pickup selector actually appears before relying on it. On a
+                        live store this needs Shopify Plus.
+                      </Text>
+                    </Banner>
+                  )}
+                  {data.shopPlan &&
+                    !data.shopPlan.supportsCheckoutExtensions &&
+                    !data.shopPlan.partnerDevelopment && (
                     <Banner tone="warning" title="Your plan can't show our selector inside checkout">
                       <BlockStack gap="200">
                         <Text as="p">

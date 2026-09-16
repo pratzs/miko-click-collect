@@ -31,11 +31,16 @@ export type ShopPlan = {
  * "Plus Trial" reports `shopifyPlus: false` while behaving as Plus — a known,
  * still-open Shopify bug. Trusting the boolean alone tells a merchant on a Plus
  * trial that the checkout selector will not work for them, while it sits there
- * working. Development stores get checkout extensions too, which is why they
- * are in here as well: without that, the app would tell us our own test store
- * that its own feature is unavailable.
+ * working.
+ *
+ * Development stores are deliberately NOT in here. They report plan names like
+ * "Developer Preview" or "Development", and whether checkout extensions work on
+ * one depends on which plan the store was created with — Shopify's own wording
+ * is that development shops "on the Shopify Plus plan" get them. We cannot tell
+ * which from the API, so the app says so and asks the developer to check their
+ * own checkout, rather than asserting either answer.
  */
-const PLUS_DISPLAY_NAMES = new Set(["plus", "plus trial", "shopify plus", "development"]);
+const PLUS_DISPLAY_NAMES = new Set(["plus", "plus trial", "shopify plus"]);
 
 export async function fetchShopPlan(admin: AdminLike): Promise<ShopPlan | null> {
   try {

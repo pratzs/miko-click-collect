@@ -90,7 +90,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     const cartBlockInstalled =
       !!config?.cartBlockLastSeenAt &&
       Date.now() - new Date(config.cartBlockLastSeenAt).getTime() < 30 * 24 * 60 * 60 * 1000;
-    if (shopPlan && !shopPlan.supportsCheckoutExtensions && !cartBlockInstalled) {
+    // Not raised on development stores: their plan name doesn't tell us whether
+    // checkout extensions work there, and they take no real customer orders, so
+    // a red alarm we can't stand behind is worse than staying quiet. Settings
+    // tells the developer to test their own checkout instead.
+    if (
+      shopPlan &&
+      !shopPlan.supportsCheckoutExtensions &&
+      !shopPlan.partnerDevelopment &&
+      !cartBlockInstalled
+    ) {
       pickupUnreachable = { planName: shopPlan.displayName };
     }
   }
