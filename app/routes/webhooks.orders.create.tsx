@@ -3,10 +3,6 @@ import { json } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
 import { db } from "../db.server";
 
-const ATTR_PICKUP = "miko_pickup_method";
-const ATTR_LOCATION_ID = "miko_location_id";
-const ATTR_LOCATION_NAME = "miko_location_name";
-
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { topic, shop, payload, admin } = await authenticate.webhook(request);
 
@@ -32,35 +28,18 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       email?: string;
       phone?: string;
     };
-    billing_address?: { phone?: string };
+    billing_address?: { phone?: string; first_name?: string; last_name?: string; name?: string };
+    shipping_address?: { first_name?: string; last_name?: string; name?: string };
     email?: string;
     phone?: string;
   };
 
-  const attrs = new Map(order.note_attributes?.map((a) => [a.name, a.value]) ?? []);
-
-  // Two ways an order can be a pickup order, because there are two ways the
-  // customer can choose one.
-  //
-  //   "rates" mode  — our cart block or checkout extension wrote the pickup
-  //     attributes onto the cart, and they arrive here as note_attributes.
-  //   "native" mode — the customer used SHOPIFY's own pickup option inside
-  //     checkout. There are no attributes at all; the only evidence is on the
-  //     order's fulfillment orders, which say PICK_UP and name the location.
-  //
-  // Both are checked on every order rather than branching on the shop's
-  // configured mode: a merchant who switches modes still has in-flight
-  // checkouts started under the old one, and those orders must not vanish.
+  // A pickup order carries no marker of ours at all. The only evidence is on
+  // the order's fulfillment orders, which say PICK_UP and name the location the
+  // shopper chose.
   let location = null as Awaited<ReturnType<typeof db.pickupLocation.findFirst>>;
 
-  if (attrs.get(ATTR_PICKUP) === "click_and_collect") {
-    const locationId = attrs.get(ATTR_LOCATION_ID);
-    if (locationId) {
-      location = await db.pickupLocation.findFirst({ where: { id: locationId, shop } });
-    }
-  }
-
-  if (!location && admin) {
+  if (admin) {
     const shopifyLocationId = await findNativePickupLocationId(
       admin,
       order.admin_graphql_api_id,
@@ -84,27 +63,28 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   if (!location) return json({ ok: true });
 
-  const customerName = [order.customer?.first_name, order.customer?.last_name]
-    .filter(Boolean)
-    .join(" ");
+  // Who is collecting. This is the field staff read out at the counter, so an
+  // empty one is not cosmetic — verified on a real pickup order, where Shopify
+  // sent no customer name at all and the dashboard showed a blank where the
+  // name should be. Guest checkouts routinely carry the name only on an
+  // address, so fall back through every place Shopify puts it.
+  const nameFrom = (a?: { first_name?: string; last_name?: string; name?: string }) =>
+    [a?.first_name, a?.last_name].filter(Boolean).join(" ").trim() || (a?.name ?? "").trim();
+
+  const customerName =
+    nameFrom(order.customer) ||
+    nameFrom(order.shipping_address) ||
+    nameFrom(order.billing_address) ||
+    "";
   const customerEmail = order.customer?.email ?? order.email ?? "";
   const customerPhone = order.customer?.phone ?? order.billing_address?.phone ?? order.phone ?? "";
 
-  // Exclude our internal service fee line from the merchant-facing list —
-  // it's an automated charge, not something the merchant needs to pack
-  const lineItems = (order.line_items ?? [])
-    .filter(
-      (li) =>
-        !li.properties?.some(
-          (p) => p.name === "_miko_service_fee_line" && p.value === "true",
-        ),
-    )
-    .map((li) => ({
+  const lineItems = (order.line_items ?? []).map((li) => ({
       title: li.variant_title ? `${li.title} - ${li.variant_title}` : li.title,
-      quantity: li.quantity,
-      price: li.price,
-      status: "confirmed",
-    }));
+    quantity: li.quantity,
+    price: li.price,
+    status: "confirmed",
+  }));
 
   await db.clickCollectOrder.upsert({
     where: {
@@ -134,7 +114,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   });
 
   // Tag the order and add a note in Shopify admin so it's clearly a click & collect order
-  const locationName = attrs.get(ATTR_LOCATION_NAME) ?? location.name;
+  const locationName = location.name;
   if (admin) {
     try {
       await admin.graphql(
@@ -161,12 +141,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           },
         },
       );
-
-      // Auto-fulfill any service fee line item — it's a virtual fee, not a
-      // physical product, so the merchant shouldn't have to click "Mark as
-      // fulfilled" on it. Query fulfillment orders and fulfill the one
-      // containing the line tagged with _miko_service_fee_line.
-      await autoFulfillServiceFeeLine(admin, order.admin_graphql_api_id);
     } catch (e) {
       console.error("Failed to tag order:", e);
     }
@@ -225,72 +199,3 @@ async function findNativePickupLocationId(
   }
 }
 
-async function autoFulfillServiceFeeLine(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  admin: any,
-  orderGid: string,
-) {
-  // Find the fulfillment order(s) that contain our service fee line item
-  const res = await admin.graphql(
-    `query($id: ID!) {
-      order(id: $id) {
-        fulfillmentOrders(first: 10) {
-          nodes {
-            id
-            status
-            lineItems(first: 50) {
-              nodes {
-                id
-                lineItem {
-                  id
-                  customAttributes { key value }
-                }
-              }
-            }
-          }
-        }
-      }
-    }`,
-    { variables: { id: orderGid } },
-  );
-  const data = await res.json();
-  const fulfillmentOrders = data?.data?.order?.fulfillmentOrders?.nodes ?? [];
-
-  for (const fo of fulfillmentOrders) {
-    if (fo.status === "CLOSED") continue;
-
-    const feeLineItems = (fo.lineItems?.nodes ?? []).filter(
-      (foli: { lineItem: { customAttributes: Array<{ key: string; value: string }> } }) =>
-        foli.lineItem?.customAttributes?.some(
-          (a) => a.key === "_miko_service_fee_line" && a.value === "true",
-        ),
-    );
-    if (feeLineItems.length === 0) continue;
-
-    // Fulfill only fulfillment orders that consist ENTIRELY of our fee line
-    // (otherwise we'd auto-fulfill the real product the merchant needs to pack)
-    const allLines = fo.lineItems?.nodes ?? [];
-    if (feeLineItems.length !== allLines.length) continue;
-
-    try {
-      await admin.graphql(
-        `mutation fulfillmentCreate($fulfillment: FulfillmentInput!) {
-          fulfillmentCreate(fulfillment: $fulfillment) {
-            fulfillment { id }
-            userErrors { message }
-          }
-        }`,
-        {
-          variables: {
-            fulfillment: {
-              lineItemsByFulfillmentOrder: [{ fulfillmentOrderId: fo.id }],
-              notifyCustomer: false,
-            },
-          },
-        },
-      );
-    } catch (err) {
-      console.error("Auto-fulfill service fee line failed:", err);
-    }
-  }
-}
