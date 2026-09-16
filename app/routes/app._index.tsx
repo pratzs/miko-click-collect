@@ -1,8 +1,6 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import { useLoaderData, useNavigate } from "@remix-run/react";
-import { useState } from "react";
-import { useAppBridge } from "@shopify/app-bridge-react";
 import {
   Page,
   Layout,
@@ -29,7 +27,7 @@ import { db } from "../db.server";
 import { getPlan } from "../utils/plans";
 import { DEV_STORE_PLAN } from "../dev-store.server";
 import { reconcilePlan } from "../utils/billing.server";
-import { checkPickupVisibility } from "../utils/storefront-visibility.server";
+import { checkPickupVisibility, themeEditorProductUrl } from "../utils/storefront-visibility.server";
 import { runAutoSetup } from "../utils/auto-setup.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -98,6 +96,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const pickupVisibility = locationCount > 0
     ? await checkPickupVisibility(shop, session.accessToken ?? "")
     : ({ state: "unknown" } as const);
+  const themeEditorUrl =
+    pickupVisibility.state === "hidden" ? themeEditorProductUrl(shop, pickupVisibility.themeId) : null;
 
   return json({
     planName,
@@ -110,6 +110,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     totalOrderCount,
     hasEmailConfig,
     pickupVisibility,
+    themeEditorUrl,
     recentOrders: orders.map((o) => ({
       id: o.id,
       orderName: o.shopifyOrderName,
@@ -192,33 +193,9 @@ export default function DashboardPage() {
   const {
     planName, plan, shopHandle, locationCount,
     pendingCount, readyCount, pickedUpCount, totalOrderCount,
-    hasEmailConfig, pickupVisibility, recentOrders,
+    hasEmailConfig, pickupVisibility, themeEditorUrl, recentOrders,
   } = useLoaderData<typeof loader>();
   const navigate = useNavigate();
-  const shopify = useAppBridge();
-  const [enablingDisplay, setEnablingDisplay] = useState(false);
-  const [pickupDisplayMsg, setPickupDisplayMsg] = useState<{ ok: boolean; msg: string } | null>(null);
-
-  async function enablePickupDisplay() {
-    setEnablingDisplay(true);
-    setPickupDisplayMsg(null);
-    try {
-      const token = await shopify.idToken();
-      const res = await fetch("/api/enable-pickup-display", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const body = await res.json();
-      setPickupDisplayMsg({
-        ok: Boolean(body.ok),
-        msg: body.message ?? "Something went wrong. Please try again.",
-      });
-    } catch (e) {
-      setPickupDisplayMsg({ ok: false, msg: e instanceof Error ? e.message : String(e) });
-    }
-    setEnablingDisplay(false);
-  }
-
   const step1Done = locationCount > 0;
   const step2Done = totalOrderCount > 0;
   const step3Done = hasEmailConfig;
@@ -338,32 +315,31 @@ export default function DashboardPage() {
       ]}
     >
       <Layout>
-        {pickupDisplayMsg && (
-          <Layout.Section>
-            <Banner tone={pickupDisplayMsg.ok ? "success" : "critical"} onDismiss={() => setPickupDisplayMsg(null)}>
-              {pickupDisplayMsg.msg}
-            </Banner>
-          </Layout.Section>
-        )}
-
-        {pickupVisibility.state === "hidden" && !pickupDisplayMsg?.ok && (
+        {pickupVisibility.state === "hidden" && themeEditorUrl && (
           <Layout.Section>
             <Banner
               tone="warning"
               title="Your product pages don't mention pickup"
               action={{
-                content: "Show pickup on my product pages",
-                loading: enablingDisplay,
-                onAction: enablePickupDisplay,
+                content: "Open my product page settings",
+                onAction: () => {
+                  if (window.top) window.top.location.href = themeEditorUrl;
+                },
               }}
             >
-              <Text as="p">
-                Pickup works at checkout, but shoppers browsing your products never see it
-                offered, and that is where they decide. Your theme ({pickupVisibility.themeName})
-                has Shopify&apos;s pickup block switched off. One tap and we will turn it on, so
-                every product page shows &quot;Pickup available at your store&quot; with your
-                preparation time.
-              </Text>
+              <BlockStack gap="200">
+                <Text as="p">
+                  Pickup works at checkout, but shoppers browsing your products never see it
+                  offered, and that is where they decide. Your theme ({pickupVisibility.themeName})
+                  ships with Shopify&apos;s pickup block switched off.
+                </Text>
+                <Text as="p">
+                  Shopify does not let apps change theme settings, so this one is yours to tick.
+                  The button opens your product template: select the <b>buy buttons</b> block and
+                  turn on <b>Pickup availability</b>. Every product page then shows
+                  &quot;Pickup available at your store&quot; with your preparation time.
+                </Text>
+              </BlockStack>
             </Banner>
           </Layout.Section>
         )}
