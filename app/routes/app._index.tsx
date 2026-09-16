@@ -30,6 +30,7 @@ import { getPlan } from "../utils/plans";
 import { DEV_STORE_PLAN } from "../dev-store.server";
 import { reconcilePlan } from "../utils/billing.server";
 import { checkPickupVisibility } from "../utils/storefront-visibility.server";
+import { runAutoSetup } from "../utils/auto-setup.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
@@ -51,6 +52,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         devStorePlan: DEV_STORE_PLAN,
       });
     }
+  }
+
+  // Run setup from the DASHBOARD too, not just Settings. This is the first
+  // screen a merchant sees, and if setup has not run they land on an empty app
+  // and have to go and build it by hand — which is the step that loses them.
+  const pre = await db.shopConfig.findUnique({ where: { shop } });
+  if (pre && (!pre.setupCompletedAt || pre.setupError)) {
+    await runAutoSetup(shop, session.accessToken ?? "").catch((err) =>
+      console.error("[dashboard] setup failed:", err),
+    );
   }
 
   const [config, locationCount, orders] = await Promise.all([
@@ -214,41 +225,34 @@ export default function DashboardPage() {
   const allDone = step1Done && step2Done && step3Done;
   const completedSteps = [step1Done, step2Done, step3Done].filter(Boolean).length;
 
-  const openCheckoutEditor = () => {
-    const url = `https://admin.shopify.com/store/${shopHandle}/settings/checkout/editor`;
-    if (window.top) window.top.location.href = url;
-  };
-
-  const openThemeEditor = () => {
-    const url = `https://admin.shopify.com/store/${shopHandle}/themes/current/editor?previewPath=%2Fcart`;
-    if (window.top) window.top.location.href = url;
-  };
-
   const openStorefront = () => {
     const url = `https://${shopHandle}.myshopify.com`;
     if (window.top) window.top.location.href = url;
   };
 
-  // Phase 1: fresh install -nothing set up
+  // Phase 1: the app could not set itself up. The only honest reason left is
+  // that the store has no location that fulfills online orders, because setup
+  // imports them automatically. So this screen names that, rather than handing
+  // the merchant a setup checklist for work the app already does.
   if (!step1Done) {
     return (
-      <Page title="Welcome to Miko Click and Collect">
+      <Page title="Miko Click and Collect">
         <Layout>
           <Layout.Section>
             <div
               style={{
-                background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)",
+                background: "linear-gradient(135deg, #1a2e05 0%, #3f6212 55%, #65a30d 100%)",
                 borderRadius: "12px",
                 padding: "40px",
               }}
             >
               <BlockStack gap="400">
                 <Text as="h2" variant="headingXl" fontWeight="bold">
-                  <span style={{ color: "white" }}>Let customers collect orders in-store</span>
+                  <span style={{ color: "white" }}>Let shoppers collect in store</span>
                 </Text>
                 <Text as="p" variant="bodyLg">
-                  <span style={{ color: "rgba(255,255,255,0.8)" }}>
-                    Add in-store pickup to your checkout in minutes. Customers choose a location, you get notified, and they collect when ready.
+                  <span style={{ color: "rgba(255,255,255,0.85)" }}>
+                    We set this up from your own store locations. We could not find one yet.
                   </span>
                 </Text>
               </BlockStack>
@@ -258,38 +262,31 @@ export default function DashboardPage() {
           <Layout.Section>
             <Card>
               <BlockStack gap="400">
-                <BlockStack gap="100">
-                  <Text as="h2" variant="headingMd">Setup guide</Text>
-                  <Text as="p" variant="bodySm" tone="subdued">
-                    Complete these steps to get click and collect live. Takes about 5 minutes.
-                  </Text>
-                </BlockStack>
-                <BlockStack gap="200">
-                  <StepRow
-                    n={1}
-                    title="Add a pickup location"
-                    description="Enter your store address, opening hours, prep time, and collection instructions."
-                    cta="Add location"
-                    done={false}
-                    onAction={() => navigate("/app/locations/new")}
-                  />
-                  <StepRow
-                    n={2}
-                    title="Add the extension to your checkout"
-                    description="Open the checkout editor and add the Click and Collect block. See the Help page for detailed steps."
-                    cta="Open checkout editor"
-                    done={false}
-                    onAction={openCheckoutEditor}
-                  />
-                  <StepRow
-                    n={3}
-                    title="Configure email notifications"
-                    description="Set your sender name and reply-to email so customers get pickup-ready notifications."
-                    cta="Go to settings"
-                    done={false}
-                    onAction={() => navigate("/app/settings")}
-                  />
-                </BlockStack>
+                <Banner tone="warning" title="No location can fulfill online orders">
+                  <BlockStack gap="200">
+                    <Text as="p">
+                      Pickup is offered per store location, so there needs to be at least one
+                      with &quot;Fulfill online orders from this location&quot; turned on, and a
+                      street address so Shopify can place it on a map for nearby shoppers.
+                    </Text>
+                    <Text as="p">
+                      Set that up in Settings, then Locations. Come back here and we will import
+                      it and switch pickup on for you.
+                    </Text>
+                  </BlockStack>
+                </Banner>
+                <InlineStack gap="300">
+                  <Button
+                    variant="primary"
+                    onClick={() => {
+                      const url = `https://admin.shopify.com/store/${shopHandle}/settings/locations`;
+                      if (window.top) window.top.location.href = url;
+                    }}
+                  >
+                    Open your locations
+                  </Button>
+                  <Button onClick={() => navigate("/app/locations")}>Add one by hand</Button>
+                </InlineStack>
               </BlockStack>
             </Card>
           </Layout.Section>
@@ -297,19 +294,25 @@ export default function DashboardPage() {
           <Layout.Section>
             <Card>
               <BlockStack gap="300">
-                <Text as="h2" variant="headingMd">How it works</Text>
+                <Text as="h2" variant="headingMd">What happens once a location is there</Text>
                 <List type="number">
                   <List.Item>
-                    <Text as="span" fontWeight="semibold">Customer selects pickup at checkout</Text> -they see a "Click &amp; Collect" checkbox with your locations, hours, and prep time.
+                    <Text as="span" fontWeight="semibold">We switch pickup on</Text> for each of
+                    your locations, so shoppers see it on your product pages and at checkout.
+                    Nothing is added to your theme and no products are created.
                   </List.Item>
                   <List.Item>
-                    <Text as="span" fontWeight="semibold">Order appears in your dashboard</Text> -tagged "click-collect" in Shopify admin with the pickup location in the order notes.
+                    <Text as="span" fontWeight="semibold">The shopper picks a store</Text> at
+                    checkout and sees how long it takes you to have it ready.
                   </List.Item>
                   <List.Item>
-                    <Text as="span" fontWeight="semibold">You mark it "Ready"</Text> -the customer gets an email notification to come collect their order.
+                    <Text as="span" fontWeight="semibold">The order lands here</Text> tagged
+                    click-collect, with the pickup location on the order.
                   </List.Item>
                   <List.Item>
-                    <Text as="span" fontWeight="semibold">Customer collects</Text> -you mark it "Collected" and the order is complete.
+                    <Text as="span" fontWeight="semibold">You mark it ready</Text> and the
+                    shopper is emailed where to go and what to bring. Mark it collected when
+                    they have it.
                   </List.Item>
                 </List>
               </BlockStack>
