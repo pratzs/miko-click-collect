@@ -65,6 +65,18 @@ export type ShopifyLocation = {
   address: string;
   localPickupEnabled: boolean;
   pickupTime: string | null;
+  /**
+   * Whether Shopify can actually place this location on a map.
+   *
+   * Shopify's pickup picker is a proximity search — it asks "which locations
+   * near the buyer have this item". A location with no street address never
+   * gets geocoded, so it has no coordinates, so it matches nobody: the customer
+   * sees "No locations in <country> with your item" even though pickup is
+   * switched on and the item is in stock there. Verified on a live store: a
+   * location with only a country set produced exactly that, and Shopify's own
+   * settings page still showed it as "Offers pickup".
+   */
+  hasMappableAddress: boolean;
 };
 
 type LocationNode = {
@@ -76,6 +88,8 @@ type LocationNode = {
     address1?: string | null;
     city?: string | null;
     zip?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
   } | null;
   localPickupSettingsV2?: { pickupTime?: string | null; instructions?: string | null } | null;
 };
@@ -100,7 +114,7 @@ export async function listShopifyLocations(
           name
           isActive
           fulfillsOnlineOrders
-          address { address1 city zip }
+          address { address1 city zip latitude longitude }
           localPickupSettingsV2 { pickupTime instructions }
         }
       }
@@ -119,6 +133,12 @@ export async function listShopifyLocations(
       .join(", "),
     localPickupEnabled: Boolean(node.localPickupSettingsV2),
     pickupTime: node.localPickupSettingsV2?.pickupTime ?? null,
+    // Coordinates are what the proximity search actually uses; the street
+    // address is checked too so we can tell the merchant what to go and fix.
+    hasMappableAddress:
+      Boolean(node.address?.address1) &&
+      node.address?.latitude != null &&
+      node.address?.longitude != null,
   }));
 }
 
@@ -198,6 +218,12 @@ export type NativePickupSyncResult = {
   disabled: number;
   /** Active pickup points with no Shopify location mapped — invisible at checkout. */
   unmapped: string[];
+  /**
+   * Mapped, enabled, and STILL invisible to customers because the Shopify
+   * location has no usable street address, so Shopify can't place it on a map
+   * and its proximity search never returns it.
+   */
+  addressless: string[];
   failures: Array<{ location: string; error: string }>;
 };
 
@@ -222,10 +248,21 @@ export async function syncNativePickup(
     enabled: 0,
     disabled: 0,
     unmapped: [],
+    addressless: [],
     failures: [],
   };
 
   const locations = await db.pickupLocation.findMany({ where: { shop } });
+
+  // Read the store's locations once so we can tell the merchant when pickup is
+  // switched on but still cannot reach a customer. Non-fatal: if this lookup
+  // fails we still do the real work, we just cannot warn about addresses.
+  let shopifyLocations: ShopifyLocation[] = [];
+  try {
+    shopifyLocations = await listShopifyLocations(shop, accessToken);
+  } catch (err) {
+    console.warn("[syncNativePickup] address check skipped:", err);
+  }
 
   for (const loc of locations) {
     const shouldBeOn = loc.isActive && Boolean(loc.shopifyLocationId);
@@ -247,6 +284,11 @@ export async function syncNativePickup(
           });
         }
         result.enabled += 1;
+
+        const shopifyLocation = shopifyLocations.find((l) => l.id === loc.shopifyLocationId);
+        if (shopifyLocation && !shopifyLocation.hasMappableAddress) {
+          result.addressless.push(loc.name);
+        }
       } else if (loc.localPickupEnabled && loc.shopifyLocationId) {
         await disableLocalPickup(shop, accessToken, loc.shopifyLocationId);
         await db.pickupLocation.update({

@@ -53,7 +53,12 @@ api_version = "2026-04"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_products,write_products,read_orders,write_orders,write_delivery_customizations,read_delivery_customizations,read_shipping,write_shipping,read_publications,write_publications"
+# read_locations is required for native pickup mode: Shopify switches local
+# pickup on per Location, so the app has to be able to list the store's
+# locations to map pickup points onto them. Without it `locations` returns
+# ACCESS_DENIED and the whole native flow is dead — verified on a live store,
+# because the granted scopes come from THIS file, not from the SCOPES env var.
+scopes = "read_products,write_products,read_orders,write_orders,write_delivery_customizations,read_delivery_customizations,read_shipping,write_shipping,read_locations,read_publications,write_publications"
 optional_scopes = [ ]
 use_legacy_install_flow = false
 

@@ -45,6 +45,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   // could still import so the page can offer it instead of making the merchant
   // retype addresses Shopify already has.
   let importableCount = 0;
+  let addressless: string[] = [];
   if (checkoutMode === "native") {
     try {
       const shopifyLocations = await listShopifyLocations(shop, session.accessToken ?? "");
@@ -52,6 +53,17 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       importableCount = shopifyLocations.filter(
         (l) => l.fulfillsOnlineOrders && !claimed.has(l.id),
       ).length;
+      // Switched on, in stock, and still never offered to a customer: Shopify
+      // finds pickup locations by proximity, so one without a street address
+      // matches nobody.
+      addressless = locations
+        .filter(
+          (l) =>
+            l.isActive &&
+            l.shopifyLocationId &&
+            shopifyLocations.some((s) => s.id === l.shopifyLocationId && !s.hasMappableAddress),
+        )
+        .map((l) => l.name);
     } catch (err) {
       console.error("[locations] could not count importable Shopify locations:", err);
     }
@@ -75,6 +87,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     canAdd,
     checkoutMode,
     importableCount,
+    addressless,
   });
 };
 
@@ -170,7 +183,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function LocationsPage() {
-  const { locations, plan, planName, activeCount, canAdd, checkoutMode, importableCount } =
+  const { locations, plan, planName, activeCount, canAdd, checkoutMode, importableCount, addressless } =
     useLoaderData<typeof loader>();
   const navigate = useNavigate();
   const importer = useFetcher<{ ok?: boolean; message?: string }>();
@@ -205,6 +218,23 @@ export default function LocationsPage() {
           <Layout.Section>
             <Banner tone={importer.data.ok ? "success" : "warning"}>
               {importer.data.message}
+            </Banner>
+          </Layout.Section>
+        )}
+
+        {addressless.length > 0 && (
+          <Layout.Section>
+            <Banner
+              tone="critical"
+              title={`Shopify can't offer ${addressless.length === 1 ? "this location" : "these locations"} to customers`}
+            >
+              <p>
+                Pickup is switched on for {addressless.join(", ")}, but the matching Shopify
+                location has no street address. Shopify finds pickup locations by how close they
+                are to the customer, so one without an address is never offered — customers see
+                &quot;No locations with your item&quot; even though the item is in stock. Add the
+                street address in Settings &rarr; Locations.
+              </p>
             </Banner>
           </Layout.Section>
         )}

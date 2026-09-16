@@ -902,6 +902,11 @@ export async function runAutoSetup(shop: string, accessToken: string): Promise<S
           `Not shown at checkout until linked to a Shopify location: ${sync.unmapped.join(", ")}`,
         );
       }
+      if (sync.addressless.length) {
+        problems.push(
+          `Pickup is switched on for ${sync.addressless.join(", ")}, but the Shopify location has no street address, so Shopify can't offer it to customers. Add the address in Settings → Locations.`,
+        );
+      }
       result.steps.nativePickup = problems.length
         ? { ok: false, count: sync.enabled, error: problems.join(" | ") }
         : { ok: true, count: sync.enabled };

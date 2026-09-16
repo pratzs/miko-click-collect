@@ -401,6 +401,19 @@ export default function LocationFormPage() {
                           </Text>
                         </Banner>
                       )}
+                    {shopifyLocationId &&
+                      !shopifyLocations.find((l) => l.id === shopifyLocationId)
+                        ?.hasMappableAddress && (
+                        <Banner tone="critical" title="This Shopify location has no street address">
+                          <Text as="p">
+                            Shopify finds pickup locations by how close they are to the customer,
+                            so a location without a full street address is never offered — the
+                            customer just sees &quot;No locations with your item&quot;, even
+                            though pickup is switched on and the item is in stock. Add the street
+                            address in Settings → Locations.
+                          </Text>
+                        </Banner>
+                      )}
                     <Banner tone="info">
                       <BlockStack gap="200">
                         <Text as="p">
