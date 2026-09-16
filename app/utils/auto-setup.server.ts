@@ -110,50 +110,37 @@ async function fetchPrimaryDeliveryProfile(shop: string, accessToken: string): P
 /**
  * Delete one legacy "Click and Collect - ..." delivery rate.
  *
- * Throws on failure, and that matters: the first version swallowed every error
- * with `.catch(() => null)` and never looked at `userErrors`, so cleanup
- * reported success, cleared our record of the rate, and left it live at
- * checkout. Verified on a real checkout, which still offered
- * "Click and Collect - Office" long after the app said it was gone. A delete
- * that cannot confirm the delete must say so.
+ * `methodDefinitionsToDelete` is a TOP-LEVEL field on DeliveryProfileInput. The
+ * first version nested it inside zonesToUpdate, where it does not exist, so
+ * every delete failed validation. That was invisible because the call was
+ * wrapped in `.catch(() => null)` and userErrors were never read: cleanup
+ * reported success, forgot the rate, and a real checkout went on offering
+ * "Click and Collect - Office" afterwards.
+ *
+ * So this throws on transport errors AND on userErrors. A delete that cannot
+ * confirm the delete must say so.
  */
 async function deleteRate(shop: string, accessToken: string, rateId: string) {
   if (!rateId) return;
-  const profile = await fetchPrimaryDeliveryProfile(shop, accessToken);
 
-  for (const lg of profile.profileLocationGroups) {
-    for (const zone of lg.locationGroupZones.nodes) {
-      const found = zone.methodDefinitions.nodes.find((m) => m.id === rateId);
-      if (!found) continue;
-
-      const res = await shopifyGraphql<{
-        deliveryProfileUpdate: { userErrors: Array<{ message: string }> };
-      }>(
-        shop,
-        accessToken,
-        `mutation($id: ID!, $profile: DeliveryProfileInput!) {
-          deliveryProfileUpdate(id: $id, profile: $profile) {
-            userErrors { message }
-          }
-        }`,
-        {
-          id: profile.id,
-          profile: {
-            locationGroupsToUpdate: [
-              {
-                id: lg.locationGroup.id,
-                zonesToUpdate: [{ id: zone.zone.id, methodDefinitionsToDelete: [rateId] }],
-              },
-            ],
-          },
-        },
-      );
-      if (res.errors?.length) throw new Error(res.errors.map((e) => e.message).join("; "));
-      const userErrors = res.data?.deliveryProfileUpdate?.userErrors ?? [];
-      if (userErrors.length) throw new Error(userErrors.map((e) => e.message).join("; "));
-      return;
-    }
-  }
+  const res = await shopifyGraphql<{
+    deliveryProfileUpdate: { userErrors: Array<{ message: string }> };
+  }>(
+    shop,
+    accessToken,
+    `mutation deleteRate($id: ID!, $profile: DeliveryProfileInput!) {
+      deliveryProfileUpdate(id: $id, profile: $profile) {
+        userErrors { message }
+      }
+    }`,
+    {
+      id: (await fetchPrimaryDeliveryProfile(shop, accessToken)).id,
+      profile: { methodDefinitionsToDelete: [rateId] },
+    },
+  );
+  if (res.errors?.length) throw new Error(res.errors.map((e) => e.message).join("; "));
+  const userErrors = res.data?.deliveryProfileUpdate?.userErrors ?? [];
+  if (userErrors.length) throw new Error(userErrors.map((e) => e.message).join("; "));
 }
 
 async function retireServiceFeeProduct(shop: string, accessToken: string, productId: string) {
@@ -306,7 +293,9 @@ export async function runAutoSetup(shop: string, accessToken: string): Promise<S
     result.steps.pickup = problems.length
       ? { ok: false, count: sync.enabled, error: problems.join(" | ") }
       : { ok: true, count: sync.enabled };
-    result.ok = problems.length === 0;
+    // &&=, not =. Assigning here once wiped out a cleanup failure recorded a few
+    // lines earlier and reported the whole setup as ok.
+    result.ok = result.ok && problems.length === 0;
   } catch (e) {
     result.ok = false;
     result.steps.pickup = { ok: false, error: e instanceof Error ? e.message : String(e) };
