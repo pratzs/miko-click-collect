@@ -24,6 +24,7 @@ import { db } from "../db.server";
 import { sendStatusEmail } from "../utils/email.server";
 import { format } from "date-fns";
 import { parseLineItems, getNextStatus, minStatus, statusIndex } from "../utils/status";
+import { backfillCustomerContact } from "../utils/pickup-order.server";
 
 const ALL_STEPS = [
   { key: "confirmed", label: "Confirmed" },
@@ -34,15 +35,33 @@ const ALL_STEPS = [
 ];
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { session, admin } = await authenticate.admin(request);
   const shop = session.shop;
   const { id } = params;
 
-  const order = await db.clickCollectOrder.findFirst({
+  let order = await db.clickCollectOrder.findFirst({
     where: { id, shop },
     include: { pickupLocation: true, shopConfig: true },
   });
   if (!order) throw new Response("Not found", { status: 404 });
+
+  // An order recorded before this app could read protected customer data has
+  // no name on it. Ask Shopify once, here, where the name is actually needed.
+  if (!order.customerName && order.shopifyOrderGid) {
+    const filled = await backfillCustomerContact({
+      shop,
+      admin,
+      orderId: order.id,
+      orderGid: order.shopifyOrderGid,
+    });
+    if (filled) {
+      order = {
+        ...order,
+        customerName: filled.customerName || order.customerName,
+        customerPhone: filled.customerPhone || order.customerPhone,
+      };
+    }
+  }
 
   const emailLogs = await db.emailLog.findMany({
     where: { shop, orderId: id },

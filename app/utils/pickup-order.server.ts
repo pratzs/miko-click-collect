@@ -217,3 +217,74 @@ async function tagOrderInShopify({
     console.error("Failed to tag order:", e);
   }
 }
+
+/**
+ * Fill in a name and phone that Shopify would not give us at the time.
+ *
+ * Customer name and phone are protected customer data. Until an app is granted
+ * those fields, Shopify does not error — it quietly returns null, and the order
+ * lands here with an empty name. The counter screen then shows a dash where the
+ * collecting customer's name belongs, which on this particular screen is the
+ * one field that matters.
+ *
+ * So rather than leave those orders blank forever, an order that is missing a
+ * name asks Shopify once, when somebody actually opens it, and keeps what comes
+ * back. One request, only on the orders that need it, and it stops needing it
+ * the moment access is granted.
+ */
+export async function backfillCustomerContact({
+  shop,
+  admin,
+  orderId,
+  orderGid,
+}: {
+  shop: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  admin: any;
+  orderId: string;
+  orderGid: string;
+}): Promise<{ customerName: string; customerPhone: string } | null> {
+  if (!admin || !orderGid) return null;
+  try {
+    const res = await admin.graphql(
+      `#graphql
+      query OrderContact($id: ID!) {
+        order(id: $id) {
+          phone
+          customer { firstName lastName phone }
+          billingAddress { firstName lastName name phone }
+        }
+      }`,
+      { variables: { id: orderGid } },
+    );
+    const data = await res.json();
+    if (data?.errors) return null;
+
+    const o = data?.data?.order;
+    if (!o) return null;
+
+    const join = (a?: { firstName?: string | null; lastName?: string | null; name?: string | null }) =>
+      [a?.firstName, a?.lastName].filter(Boolean).join(" ").trim() || (a?.name ?? "").trim();
+
+    const customerName = join(o.customer) || join(o.billingAddress) || "";
+    const customerPhone = o.customer?.phone ?? o.billingAddress?.phone ?? o.phone ?? "";
+
+    // Still nothing to learn: access has not been granted yet, or this shopper
+    // genuinely gave no name. Either way, do not write an empty string over an
+    // empty string on every page view.
+    if (!customerName && !customerPhone) return null;
+
+    await db.clickCollectOrder.updateMany({
+      where: { id: orderId, shop },
+      data: {
+        ...(customerName ? { customerName } : {}),
+        ...(customerPhone ? { customerPhone } : {}),
+      },
+    });
+
+    return { customerName, customerPhone };
+  } catch (err) {
+    console.error("[backfillCustomerContact] lookup failed:", err);
+    return null;
+  }
+}
