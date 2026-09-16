@@ -60,8 +60,10 @@ api_version = "2026-04"
 # read_themes — a merchant can have pickup working at checkout while every
 #   product page stays silent about it, because whether Shopify's "Pickup
 #   available at ..." block renders is a theme setting and Horizon ships with it
-#   OFF. Read-only, and only the published theme's product template, so the app
-#   can tell the merchant to flip it. Never writes to a theme.
+#   OFF. write_themes is what lets the app flip that one boolean FOR them, on a
+#   button press, instead of sending them into the theme editor to hunt for a
+#   setting they have never heard of. It only ever changes
+#   show_pickup_availability in the published product template, nothing else.
 #
 # read_locations — native pickup mode switches Shopify's local pickup on per
 #   Location, so the app must be able to list the store's locations to map
@@ -74,7 +76,7 @@ api_version = "2026-04"
 #   `order.fulfillmentOrders` needs the read scope (a pickup location is a
 #   merchant-managed location). The write scope lets the app close out a pickup
 #   fulfillment when the order is marked collected.
-scopes = "read_products,write_products,read_orders,write_orders,read_shipping,write_shipping,read_locations,read_themes,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_publications,write_publications"
+scopes = "read_products,write_products,read_orders,write_orders,read_shipping,write_shipping,read_locations,read_themes,write_themes,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_publications,write_publications"
 optional_scopes = [ ]
 use_legacy_install_flow = false
 

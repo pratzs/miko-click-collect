@@ -99,9 +99,87 @@ export async function checkPickupVisibility(
   }
 }
 
-/** Deep link straight to the product template in the theme editor. */
-export function themeEditorProductUrl(shop: string, themeId: string): string {
-  const storeHandle = shop.replace(/\.myshopify\.com$/, "");
-  const numericId = themeId.split("/").pop();
-  return `https://admin.shopify.com/store/${storeHandle}/themes/${numericId}/editor?template=product`;
+/**
+ * Switch the theme's pickup block ON for the merchant.
+ *
+ * The app used to explain where the setting lived and send the merchant to the
+ * theme editor to find it. That is a step, and every step is somewhere a
+ * merchant stops: they installed a click and collect app, of course they want
+ * pickup shown on their product pages. So the app does it.
+ *
+ * Narrow on purpose. It flips `show_pickup_availability` from false to true in
+ * the published theme's product template and changes NOTHING else: same file,
+ * same structure, one boolean. It never runs on its own — the merchant presses
+ * a button — because silently rewriting a live theme is not ours to do.
+ */
+export async function enablePickupOnProductPages(
+  shop: string,
+  accessToken: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const current = await checkPickupVisibility(shop, accessToken);
+    if (current.state === "shown") return { ok: true };
+    if (current.state !== "hidden") {
+      return { ok: false, error: "We could not find the pickup setting in your published theme." };
+    }
+
+    const read = await fetch(`https://${shop}/admin/api/${API_VERSION}/graphql.json`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": accessToken },
+      body: JSON.stringify({
+        query: `#graphql
+          query ProductTemplate($id: ID!) {
+            theme(id: $id) {
+              files(filenames: ["templates/product.json"], first: 1) {
+                nodes { body { ... on OnlineStoreThemeFileBodyText { content } } }
+              }
+            }
+          }`,
+        variables: { id: current.themeId },
+      }),
+    });
+    const readJson = (await read.json()) as {
+      data?: { theme?: { files?: { nodes?: Array<{ body?: { content?: string } }> } } };
+    };
+    const content = readJson?.data?.theme?.files?.nodes?.[0]?.body?.content;
+    if (!content) return { ok: false, error: "We could not read your product template." };
+
+    const updated = content.replace(
+      /"show_pickup_availability"(\s*):(\s*)false/g,
+      '"show_pickup_availability"$1:$2true',
+    );
+    if (updated === content) {
+      return { ok: false, error: "The pickup setting was not where we expected in your theme." };
+    }
+
+    const write = await fetch(`https://${shop}/admin/api/${API_VERSION}/graphql.json`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": accessToken },
+      body: JSON.stringify({
+        query: `#graphql
+          mutation UpsertProductTemplate($themeId: ID!, $files: [OnlineStoreThemeFilesUpsertFileInput!]!) {
+            themeFilesUpsert(themeId: $themeId, files: $files) {
+              userErrors { filename message }
+            }
+          }`,
+        variables: {
+          themeId: current.themeId,
+          files: [{ filename: "templates/product.json", body: { type: "TEXT", value: updated } }],
+        },
+      }),
+    });
+    const writeJson = (await write.json()) as {
+      data?: { themeFilesUpsert?: { userErrors?: Array<{ message: string }> } };
+      errors?: Array<{ message: string }>;
+    };
+    if (writeJson?.errors?.length) {
+      return { ok: false, error: writeJson.errors.map((e) => e.message).join("; ") };
+    }
+    const userErrors = writeJson?.data?.themeFilesUpsert?.userErrors ?? [];
+    if (userErrors.length) return { ok: false, error: userErrors.map((e) => e.message).join("; ") };
+
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
 }

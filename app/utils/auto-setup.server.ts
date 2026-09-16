@@ -31,7 +31,8 @@
  */
 
 import { db } from "../db.server";
-import { syncNativePickup } from "./native-pickup.server";
+import { syncNativePickup, listShopifyLocations } from "./native-pickup.server";
+import { canAddLocation } from "./plans";
 
 const API_VERSION = "2026-04";
 const RATE_PREFIX = "Click and Collect"; // legacy rate titles, cleaned up below
@@ -262,6 +263,48 @@ export type SetupResult = {
   cleanedUp: string[];
 };
 
+/**
+ * Turn the store's own locations into pickup points, automatically.
+ *
+ * Every step we hand a merchant is a step they can stop at, and a merchant who
+ * opens a click and collect app to an empty screen and a form has already been
+ * given a reason to uninstall. The store already knows where its shops are, so
+ * the app should arrive finished rather than arrive asking.
+ *
+ * Only ever ADDS, and only on a shop with no pickup points at all, so it cannot
+ * touch or duplicate anything a merchant has set up themselves. Skips locations
+ * that do not fulfill online orders, because Shopify would never offer those for
+ * pickup anyway.
+ */
+async function autoImportLocations(shop: string, accessToken: string, planName: string): Promise<number> {
+  const existing = await db.pickupLocation.count({ where: { shop } });
+  if (existing > 0) return 0;
+
+  const shopifyLocations = await listShopifyLocations(shop, accessToken);
+  const candidates = shopifyLocations.filter((l) => l.fulfillsOnlineOrders);
+  if (candidates.length === 0) return 0;
+
+  let active = 0;
+  let imported = 0;
+  for (const loc of candidates) {
+    if (!canAddLocation(planName, active)) break;
+    const [address, city, postcode] = loc.address.split(",").map((x) => x.trim());
+    await db.pickupLocation.create({
+      data: {
+        shop,
+        name: loc.name,
+        address: address ?? "",
+        city: city ?? "",
+        postcode: postcode ?? "",
+        shopifyLocationId: loc.id,
+      },
+    });
+    active += 1;
+    imported += 1;
+  }
+  return imported;
+}
+
 export async function runAutoSetup(shop: string, accessToken: string): Promise<SetupResult> {
   const config = await db.shopConfig.findUnique({ where: { shop } });
   if (!config) {
@@ -275,6 +318,18 @@ export async function runAutoSetup(shop: string, accessToken: string): Promise<S
   } catch (e) {
     result.ok = false;
     result.steps.cleanup = { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+
+  // Bring the store's locations in before syncing, so a brand new install comes
+  // out of setup already working instead of showing an empty state.
+  try {
+    const imported = await autoImportLocations(shop, accessToken, config.planName);
+    if (imported > 0) {
+      result.steps.locations = { ok: true, count: imported };
+      console.log(`[auto-setup] ${shop}: imported ${imported} location(s) from Shopify`);
+    }
+  } catch (err) {
+    console.warn("[auto-setup] location import skipped:", err);
   }
 
   try {
