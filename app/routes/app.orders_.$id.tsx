@@ -152,18 +152,31 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
       });
     }
 
+    let fulfillment: { ok: boolean; problem?: string } = { ok: true };
     if (nextStatus === "picked_up" && admin && order.shopifyOrderGid) {
-      await fulfillOrder(admin, order.shopifyOrderGid);
+      fulfillment = await fulfillOrder(admin, order.shopifyOrderGid);
     }
 
     const statusLabels: Record<string, string> = {
       processing: "All items marked as processing.",
       packing: "All items marked as packing.",
       ready: emailSent ? "All items ready. Customer notified!" : "All items marked as ready.",
-      picked_up: "Order collected and fulfilled!",
+      picked_up: fulfillment.ok
+        ? "Order collected and fulfilled in Shopify."
+        : "Order marked collected, but Shopify would not fulfill it.",
     };
 
-    return json({ ok: true, emailSent, message: statusLabels[nextStatus] ?? "Status updated." });
+    return json({
+      ok: true,
+      emailSent,
+      message: statusLabels[nextStatus] ?? "Status updated.",
+      // Say what went wrong and leave it on screen. The order is collected
+      // either way; what is at stake is the merchant knowing their Shopify
+      // order is still open and their stock has not moved.
+      warning: fulfillment.ok
+        ? undefined
+        : `${fulfillment.problem ?? "Shopify rejected the fulfillment."} Fulfil ${order.shopifyOrderName} in Shopify so your stock and reporting stay right.`,
+    });
   }
 
   if (intent === "advance_item") {
@@ -220,14 +233,18 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
       }
     }
 
+    let itemFulfillment: { ok: boolean; problem?: string } = { ok: true };
     if (derivedOrderStatus === "picked_up" && admin && order.shopifyOrderGid) {
-      await fulfillOrder(admin, order.shopifyOrderGid);
+      itemFulfillment = await fulfillOrder(admin, order.shopifyOrderGid);
     }
 
     return json({
       ok: true,
       emailSent,
       message: `"${items[itemIndex].title}" marked as ${nextStatus.replace("_", " ")}.${allReady && nextStatus === "ready" && emailSent ? " Customer notified!" : ""}`,
+      warning: itemFulfillment.ok
+        ? undefined
+        : `${itemFulfillment.problem ?? "Shopify rejected the fulfillment."} Fulfil ${order.shopifyOrderName} in Shopify so your stock and reporting stay right.`,
     });
   }
 
@@ -245,7 +262,25 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   return json({ error: "Unknown intent" }, { status: 400 });
 };
 
-async function fulfillOrder(admin: { graphql: Function }, orderGid: string) {
+/**
+ * Close out the Shopify fulfillment when the customer walks away with the bag.
+ *
+ * This used to throw away every way it could fail. It never looked at
+ * `userErrors` on the mutation, never looked at top-level GraphQL `errors`, and
+ * caught exceptions into a console line — and the caller then told the merchant
+ * "Order collected and fulfilled!" no matter what had happened. A rejected
+ * fulfillment therefore looked exactly like a successful one: the order stayed
+ * Unfulfilled in Shopify, stock was never drawn down, and nobody found out
+ * until somebody reconciled the month.
+ *
+ * Verified against the live Admin API that the mutation itself is sound, so the
+ * failures worth reporting are the real ones — insufficient stock, a location
+ * that cannot fulfill, a fulfillment order already closed elsewhere.
+ */
+async function fulfillOrder(
+  admin: { graphql: Function },
+  orderGid: string,
+): Promise<{ ok: boolean; problem?: string }> {
   try {
     const foRes = await admin.graphql(
       `query getOrder($id: ID!) {
@@ -264,7 +299,12 @@ async function fulfillOrder(admin: { graphql: Function }, orderGid: string) {
       { variables: { id: orderGid } },
     );
     const foData = await foRes.json();
+    if (foData?.errors?.length) {
+      return { ok: false, problem: foData.errors.map((e: { message: string }) => e.message).join("; ") };
+    }
+
     const fulfillmentOrders = foData.data?.order?.fulfillmentOrders?.nodes ?? [];
+    let attempted = 0;
 
     for (const fo of fulfillmentOrders) {
       if (fo.status === "CLOSED" || fo.status === "CANCELLED") continue;
@@ -273,8 +313,9 @@ async function fulfillOrder(admin: { graphql: Function }, orderGid: string) {
         .map((li: { id: string }) => ({ id: li.id }));
 
       if (lineItems.length === 0) continue;
+      attempted++;
 
-      await admin.graphql(
+      const res = await admin.graphql(
         `mutation fulfill($fulfillment: FulfillmentV2Input!) {
           fulfillmentCreateV2(fulfillment: $fulfillment) {
             fulfillment { id }
@@ -291,9 +332,26 @@ async function fulfillOrder(admin: { graphql: Function }, orderGid: string) {
           },
         },
       );
+      const data = await res.json();
+      if (data?.errors?.length) {
+        return { ok: false, problem: data.errors.map((e: { message: string }) => e.message).join("; ") };
+      }
+      const userErrors = data?.data?.fulfillmentCreateV2?.userErrors ?? [];
+      if (userErrors.length) {
+        return { ok: false, problem: userErrors.map((e: { message: string }) => e.message).join("; ") };
+      }
+      if (!data?.data?.fulfillmentCreateV2?.fulfillment?.id) {
+        return { ok: false, problem: "Shopify accepted the request but created no fulfillment." };
+      }
     }
+
+    // Nothing left to fulfill is a success, not a silence: it means Shopify had
+    // already closed this order out.
+    if (attempted === 0) return { ok: true };
+    return { ok: true };
   } catch (e) {
     console.error("Failed to fulfill order:", e);
+    return { ok: false, problem: e instanceof Error ? e.message : String(e) };
   }
 }
 
@@ -375,7 +433,7 @@ function OrderProgressBar({ status, useProcessing, usePacking }: { status: strin
 export default function OrderDetailPage() {
   const { order, location, emailLogs, hasEmail, useProcessingStep, usePackingStep } = useLoaderData<typeof loader>();
   const navigate = useNavigate();
-  const fetcher = useFetcher<{ ok?: boolean; message?: string; emailSent?: boolean }>();
+  const fetcher = useFetcher<{ ok?: boolean; message?: string; emailSent?: boolean; warning?: string }>();
 
   const [notes, setNotes] = useState(order.merchantNotes);
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
@@ -449,7 +507,20 @@ export default function OrderDetailPage() {
     >
       {fetcher.data?.message && (
         <Box paddingBlockEnd="400">
-          <Banner tone={fetcher.data.ok ? "success" : "warning"}>{fetcher.data.message}</Banner>
+          <Banner tone={fetcher.data.ok && !fetcher.data.warning ? "success" : "warning"}>
+            {fetcher.data.message}
+          </Banner>
+        </Box>
+      )}
+
+      {/* A fulfillment Shopify refused. Separate and critical, because the
+          collection itself did succeed and the merchant still has something
+          left to do. */}
+      {fetcher.data?.warning && (
+        <Box paddingBlockEnd="400">
+          <Banner tone="critical" title="Shopify did not fulfill this order">
+            <p>{fetcher.data.warning}</p>
+          </Banner>
         </Box>
       )}
 
