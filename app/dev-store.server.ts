@@ -3,13 +3,13 @@ import { db as prisma } from "./db.server";
 /**
  * Plan granted free to Partner development stores.
  *
- * Shopify's "Free for partners and developers" flag on a Managed Pricing plan
- * only takes effect once the merchant actually selects that plan on Shopify's
- * hosted pricing page. Someone who installs and opens the app without going
- * there has no subscription at all, so our own gates decide, and they land on
- * the free tier with the real product locked. This closes that gap, and it is
- * the ONLY mechanism available on the apps still using legacy billing, which
- * have no such flag to tick.
+ * The `growth` plan does carry Shopify's "Free for partners and developers"
+ * flag, but that only takes effect once the merchant actually selects the plan
+ * on Shopify's hosted pricing page. Someone who installs and opens the app
+ * without going there has no subscription at all, so our own gates decide, and
+ * they land on the free tier with the real product locked. This closes that
+ * gap. Both halves are needed: the flag makes it cost nothing, this makes it
+ * the default.
  */
 export const DEV_STORE_PLAN = "growth";
 

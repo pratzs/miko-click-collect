@@ -7,16 +7,29 @@ import { NavMenu } from "@shopify/app-bridge-react";
 import polarisStyles from "@shopify/polaris/build/esm/styles.css?url";
 import { authenticate } from "../shopify.server";
 import { db } from "../db.server";
+import { DEV_STORE_PLAN } from "../dev-store.server";
+import { reconcilePlan } from "../utils/billing.server";
 
 export const links = () => [{ rel: "stylesheet", href: polarisStyles }];
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
 
-  await db.shopConfig.upsert({
+  const config = await db.shopConfig.upsert({
     where: { shop: session.shop },
     create: { shop: session.shop, accessToken: session.accessToken || "" },
     update: { accessToken: session.accessToken || "" },
+  });
+
+  // Keep planName in step with what Shopify actually bills. Under Shopify App
+  // Pricing the merchant can subscribe, upgrade or cancel entirely on
+  // Shopify's hosted page, and we get no webhook for it — reading the live
+  // subscription on each app load is how the change reaches us at all.
+  // Never throws; falls back to the stored plan.
+  await reconcilePlan(admin, session.shop, {
+    currentPlan: config.planName,
+    isDevelopmentStore: config.isDevelopmentStore,
+    devStorePlan: DEV_STORE_PLAN,
   });
 
   return json({ apiKey: process.env.SHOPIFY_API_KEY || "" });

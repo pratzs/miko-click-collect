@@ -25,10 +25,30 @@ import {
 import { authenticate } from "../shopify.server";
 import { db } from "../db.server";
 import { getPlan } from "../utils/plans";
+import { DEV_STORE_PLAN } from "../dev-store.server";
+import { reconcilePlan } from "../utils/billing.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const shop = session.shop;
+
+  // Shopify sends the merchant back here with ?plan_handle=... straight after
+  // they pick a plan on the hosted pricing page. app.tsx reconciles too, but
+  // Remix runs parent and child loaders in PARALLEL, so on this one render its
+  // write is not yet visible here — the merchant would land on the dashboard
+  // still showing the plan they just left. Reconciling here as well costs one
+  // extra call, and only on the return-from-purchase load.
+  const justChangedPlan = new URL(request.url).searchParams.has("plan_handle");
+  if (justChangedPlan) {
+    const existing = await db.shopConfig.findUnique({ where: { shop } });
+    if (existing) {
+      await reconcilePlan(admin, shop, {
+        currentPlan: existing.planName,
+        isDevelopmentStore: existing.isDevelopmentStore,
+        devStorePlan: DEV_STORE_PLAN,
+      });
+    }
+  }
 
   const [config, locationCount, orders] = await Promise.all([
     db.shopConfig.findUnique({ where: { shop } }),

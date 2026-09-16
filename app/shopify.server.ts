@@ -2,12 +2,12 @@ import "@shopify/shopify-app-remix/adapters/node";
 import {
   ApiVersion,
   AppDistribution,
-  BillingInterval,
   shopifyApp,
 } from "@shopify/shopify-app-remix/server";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import { db } from "./db.server";
 import { settleDevStoreGrant } from "./dev-store.server";
+import { getActiveSubscriptions } from "./utils/billing.server";
 import { ensureShopConfig } from "./utils/shop.server";
 import { runAutoSetup } from "./utils/auto-setup.server";
 
@@ -21,19 +21,11 @@ const shopify = shopifyApp({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   sessionStorage: new PrismaSessionStorage(db) as any,
   distribution: AppDistribution.AppStore,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  billing: {
-    starter: {
-      trialDays: 14,
-      test: process.env.SHOPIFY_BILLING_TEST !== "false",
-      lineItems: [{ amount: 9.95, currencyCode: "USD", interval: BillingInterval.Every30Days }],
-    },
-    growth: {
-      trialDays: 14,
-      test: process.env.SHOPIFY_BILLING_TEST !== "false",
-      lineItems: [{ amount: 29.95, currencyCode: "USD", interval: BillingInterval.Every30Days }],
-    },
-  } as any,
+  // No `billing` config: this app is on Shopify App Pricing (managed pricing).
+  // Plans are defined in the Partner Dashboard, Shopify hosts the
+  // plan-selection page, and the Billing API's create path is blocked for this
+  // app — so `billing.request()` cannot work and nothing may call it.
+  // See app/utils/billing.server.ts.
   future: {
     unstable_newEmbeddedAuthStrategy: true,
     expiringOfflineAccessTokens: true,
@@ -43,15 +35,27 @@ const shopify = shopifyApp({
       shopify.registerWebhooks({ session });
       await ensureShopConfig(session.shop, session.accessToken ?? "");
 
-      // A Partner development store gets the top plan free, settled at install
-      // rather than in the app loader: Remix runs parent and child loaders in
-      // parallel, so a grant written by app.tsx is not visible to the child
-      // route rendering the gated screen on that same first render.
+      // Plan state is settled HERE, at install, not in the app loader: Remix
+      // runs parent and child loaders in parallel, so a plan written by app.tsx
+      // is not visible to the child route rendering the gated screen on that
+      // same first render, and the merchant's first ever screen shows the
+      // wrong tier.
       try {
         const cfg = await db.shopConfig.findUnique({ where: { shop: session.shop } });
         if (cfg) {
+          // A reinstall cancels the old Shopify subscription, so ask Shopify
+          // what is actually being billed before trusting the stored plan.
+          let hasSubscription = false;
+          try {
+            hasSubscription = (await getActiveSubscriptions(admin)).length > 0;
+          } catch (err) {
+            // Permissive: a transient failure must not strip a paying merchant.
+            console.warn("[afterAuth] subscription check failed:", err);
+            hasSubscription = cfg.planName !== "free";
+          }
+
           const target = await settleDevStoreGrant(admin, session.shop, {
-            hasSubscription: false /* no subscription state in this app */,
+            hasSubscription,
             currentPlan: cfg.planName,
             cachedIsDev: cfg.isDevelopmentStore,
           });
@@ -64,7 +68,7 @@ const shopify = shopifyApp({
           }
         }
       } catch (err) {
-        console.warn("[afterAuth] dev-store grant skipped:", err);
+        console.warn("[afterAuth] plan settle skipped:", err);
       }
       // Fire and forget — never block auth on setup; surfaces errors in the dashboard banner
       runAutoSetup(session.shop, session.accessToken ?? "").catch((err) => {
