@@ -73,11 +73,20 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     }),
   ]);
 
-  const activeCount = await db.clickCollectOrder.count({
-    where: { shop, status: { in: ["confirmed", "pending", "processing", "packing"] } },
+  // One grouped query rather than three separate counts run back to back.
+  const statusCounts = await db.clickCollectOrder.groupBy({
+    by: ["status"],
+    where: { shop },
+    _count: true,
   });
-  const readyCount = await db.clickCollectOrder.count({ where: { shop, status: "ready" } });
-  const pickedUpCount = await db.clickCollectOrder.count({ where: { shop, status: "picked_up" } });
+  const countOf = (...statuses: string[]) =>
+    statusCounts
+      .filter((c) => statuses.includes(c.status))
+      .reduce((sum, c) => sum + c._count, 0);
+
+  const activeCount = countOf("confirmed", "pending", "processing", "packing");
+  const readyCount = countOf("ready");
+  const pickedUpCount = countOf("picked_up");
   const totalOrderCount = activeCount + readyCount + pickedUpCount;
   const pendingCount = activeCount;
 

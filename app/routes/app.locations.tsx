@@ -14,8 +14,12 @@ import {
   Box,
   EmptyState,
   Banner,
+  TextField,
+  Icon,
 } from "@shopify/polaris";
-import { LocationIcon } from "@shopify/polaris-icons";
+import { SearchIcon } from "@shopify/polaris-icons";
+import { useMemo, useState } from "react";
+import { pickupTimeLabel, prepTimeToPickupTime } from "../utils/pickup-time";
 import { authenticate } from "../shopify.server";
 import { db } from "../db.server";
 import { getPlan, canAddLocation } from "../utils/plans";
@@ -179,11 +183,36 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   return json({ ok: imported > 0 || skippedForPlan === 0, message: parts.join(" ") });
 };
 
+/**
+ * Name a few and count the rest.
+ *
+ * These banners used to join every affected location into one sentence. One
+ * store reads fine. A chain with forty unlinked stores gets a paragraph of
+ * comma-separated names that nobody reads and that pushes the rest of the page
+ * off the screen.
+ */
+function nameList(names: string[], show = 4): string {
+  if (names.length <= show) return names.join(", ");
+  return `${names.slice(0, show).join(", ")} and ${names.length - show} more`;
+}
+
 export default function LocationsPage() {
   const { locations, plan, planName, activeCount, canAdd, importableCount, addressless } =
     useLoaderData<typeof loader>();
   const navigate = useNavigate();
   const importer = useFetcher<{ ok?: boolean; message?: string }>();
+
+  // Filtered in the browser: the loader already has every location, the plan
+  // caps how many there can be, and a store manager looking for one shop in a
+  // list of seventy should not wait for a round trip per keystroke.
+  const [filter, setFilter] = useState("");
+  const visible = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return locations;
+    return locations.filter((l) =>
+      [l.name, l.address, l.city].filter(Boolean).join(" ").toLowerCase().includes(q),
+    );
+  }, [filter, locations]);
 
   const unlinked = locations.filter((l) => l.isActive && !l.shopifyLocationId);
 
@@ -223,7 +252,7 @@ export default function LocationsPage() {
               title={`Shopify can't offer ${addressless.length === 1 ? "this location" : "these locations"} to customers`}
             >
               <p>
-                Pickup is switched on for {addressless.join(", ")}, but the matching Shopify
+                Pickup is switched on for {nameList(addressless)}, but the matching Shopify
                 location has no street address. Shopify finds pickup locations by how close they
                 are to the customer, so one without an address is never offered — customers see
                 &quot;No locations with your item&quot; even though the item is in stock. Add the
@@ -240,7 +269,7 @@ export default function LocationsPage() {
               title={`${unlinked.length} pickup location${unlinked.length === 1 ? " is" : "s are"} not showing at checkout`}
             >
               <p>
-                {unlinked.map((l) => l.name).join(", ")}{" "}
+                {nameList(unlinked.map((l) => l.name))}{" "}
                 {unlinked.length === 1 ? "isn't" : "aren't"} linked to a Shopify location yet.
                 Shopify switches pickup on per location, so customers can&apos;t choose{" "}
                 {unlinked.length === 1 ? "it" : "them"} until you link{" "}
@@ -292,7 +321,35 @@ export default function LocationsPage() {
               </EmptyState>
             ) : (
               <BlockStack gap="0">
-                {locations.map((location, idx) => (
+                {locations.length > 8 && (
+                  <>
+                    <Box padding="300">
+                      <TextField
+                        label="Search locations"
+                        labelHidden
+                        value={filter}
+                        onChange={setFilter}
+                        placeholder="Search by store name, street or city"
+                        prefix={<Icon source={SearchIcon} />}
+                        clearButton
+                        onClearButtonClick={() => setFilter("")}
+                        autoComplete="off"
+                      />
+                    </Box>
+                    <Divider />
+                  </>
+                )}
+
+                {visible.length === 0 && (
+                  <Box padding="600">
+                    <BlockStack gap="200" inlineAlign="center">
+                      <Text as="p" fontWeight="semibold">No locations match &quot;{filter}&quot;</Text>
+                      <Button variant="plain" onClick={() => setFilter("")}>Clear search</Button>
+                    </BlockStack>
+                  </Box>
+                )}
+
+                {visible.map((location, idx) => (
                   <Box key={location.id}>
                     {idx > 0 && <Divider />}
                     <Box padding="400">
@@ -315,8 +372,12 @@ export default function LocationsPage() {
                                 {[location.address, location.city].filter(Boolean).join(", ")}
                               </Text>
                             )}
+                            {/* The line the shopper is shown at checkout, word
+                                for word. Dividing minutes by 60 turned the
+                                "2-4 days" option into "Ready in 72hr", which is
+                                not a sentence any customer sees. */}
                             <Text variant="bodySm" tone="subdued" as="p">
-                              Ready in {location.prepTimeMinutes < 60 ? `${location.prepTimeMinutes}min` : `${location.prepTimeMinutes / 60}hr`}
+                              {pickupTimeLabel(prepTimeToPickupTime(location.prepTimeMinutes))}
                               {location.phone ? ` · ${location.phone}` : ""}
                             </Text>
                           </BlockStack>

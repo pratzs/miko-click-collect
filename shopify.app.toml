@@ -39,6 +39,9 @@ api_version = "2026-04"
   uri = "/webhooks/orders/cancelled"
   topics = [ "orders/cancelled" ]
 
+  # The backstop for orders/create: a native pickup order is only identifiable
+  # from its fulfillment orders, and that evidence is not always present the
+  # instant the order is created. See webhooks.orders.paid.tsx.
   [[webhooks.subscriptions]]
   uri = "/webhooks/orders/paid"
   topics = [ "orders/paid" ]
@@ -47,9 +50,6 @@ api_version = "2026-04"
   uri = "/webhooks/orders/create"
   topics = [ "orders/create" ]
 
-  [[webhooks.subscriptions]]
-  uri = "/webhooks/products/delete"
-  topics = [ "products/delete" ]
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes

@@ -34,6 +34,22 @@
 
 const API_VERSION = "2026-04";
 
+/**
+ * Remember the answer when there is nothing to say.
+ *
+ * This asks Shopify for the published theme's product template, and the
+ * dashboard asks it on every single page load. For a shop whose staff keep the
+ * app open all day that is a live Admin API call, fetching a file that can run
+ * to hundreds of kilobytes, to re-learn something that changes only when
+ * somebody edits their theme.
+ *
+ * Only the quiet answers are cached. A "hidden" result is the one the merchant
+ * is being asked to go and fix, so it is always re-checked: nothing feels more
+ * broken than doing what a banner told you and having the banner stay put.
+ */
+const CACHE_TTL_MS = 30 * 60 * 1000;
+const cache = new Map<string, { at: number; result: PickupVisibility }>();
+
 export type PickupVisibility =
   /** The theme explicitly has the pickup block switched OFF. Actionable. */
   | { state: "hidden"; themeId: string; themeName: string }
@@ -45,6 +61,18 @@ export type PickupVisibility =
 type ThemeFileNode = { filename: string; body?: { content?: string } };
 
 export async function checkPickupVisibility(
+  shop: string,
+  accessToken: string,
+): Promise<PickupVisibility> {
+  const cached = cache.get(shop);
+  if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.result;
+
+  const result = await lookUpPickupVisibility(shop, accessToken);
+  if (result.state !== "hidden") cache.set(shop, { at: Date.now(), result });
+  return result;
+}
+
+async function lookUpPickupVisibility(
   shop: string,
   accessToken: string,
 ): Promise<PickupVisibility> {

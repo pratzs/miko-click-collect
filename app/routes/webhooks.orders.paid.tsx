@@ -2,128 +2,52 @@ import type { ActionFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
 import { db } from "../db.server";
+import { recordNativePickupOrder } from "../utils/pickup-order.server";
+import type { ShopifyOrderPayload } from "../utils/pickup-order.server";
 
-const ATTR_PICKUP = "miko_pickup_method";
-const ATTR_LOCATION_ID = "miko_location_id";
-const ATTR_LOCATION_NAME = "miko_location_name";
-
+/**
+ * The second chance at catching a pickup order.
+ *
+ * This used to look for note attributes — miko_pickup_method, miko_location_id
+ * — that the app wrote under the retired cart-and-rates design and has not
+ * written since. Shopify's own local pickup orders carry no attributes at all,
+ * so the very first line of this webhook returned early on every single order.
+ * It has been doing nothing for as long as native pickup has been the design.
+ *
+ * Rather than delete it, it now does the job worth having: orders/create reads
+ * the order's fulfillment orders to find the PICK_UP method, and that evidence
+ * is not guaranteed to be there the instant an order is created. When it is
+ * missing the order is dropped silently, and the first anyone hears of it is a
+ * customer standing at a counter that has no record of them. Running the same
+ * check again here catches that. The upsert is keyed on the Shopify order id,
+ * so the common case — orders/create already got it — costs one lookup and
+ * changes nothing.
+ */
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { topic, shop, payload, admin } = await authenticate.webhook(request);
 
   if (topic !== "ORDERS_PAID") return json({ ok: true });
 
-  const order = payload as {
-    id: number;
-    name: string;
-    admin_graphql_api_id: string;
-    note_attributes: Array<{ name: string; value: string }>;
-    line_items: Array<{
-      title: string;
-      quantity: number;
-      price: string;
-      variant_title?: string;
-      properties?: Array<{ name: string; value: string }>;
-    }>;
-    total_price: string;
-    currency: string;
-    customer?: {
-      first_name?: string;
-      last_name?: string;
-      email?: string;
-      phone?: string;
-    };
-    billing_address?: { phone?: string };
-    email?: string;
-    phone?: string;
-  };
+  const order = payload as ShopifyOrderPayload;
 
-  const attrs = new Map(order.note_attributes?.map((a) => [a.name, a.value]) ?? []);
-  if (attrs.get(ATTR_PICKUP) !== "click_and_collect") return json({ ok: true });
+  // Already recorded by orders/create, which is the normal path.
+  const existing = await db.clickCollectOrder.findFirst({
+    where: { shop, shopifyOrderId: String(order.id) },
+    select: { id: true },
+  });
+  if (existing) return json({ ok: true });
 
-  const locationId = attrs.get(ATTR_LOCATION_ID);
-  if (!locationId) return json({ ok: true });
-
-  const location = await db.pickupLocation.findFirst({ where: { id: locationId, shop } });
-  if (!location) return json({ ok: true });
-
-  const customerName = [order.customer?.first_name, order.customer?.last_name]
-    .filter(Boolean)
-    .join(" ");
-  const customerEmail = order.customer?.email ?? order.email ?? "";
-  const customerPhone = order.customer?.phone ?? order.billing_address?.phone ?? order.phone ?? "";
-
-  // Exclude internal service fee line — customer/merchant only sees real items
-  const lineItems = (order.line_items ?? [])
-    .filter(
-      (li) =>
-        !li.properties?.some(
-          (p) => p.name === "_miko_service_fee_line" && p.value === "true",
-        ),
-    )
-    .map((li) => ({
-      title: li.variant_title ? `${li.title} - ${li.variant_title}` : li.title,
-      quantity: li.quantity,
-      price: li.price,
-    }));
-
-  await db.clickCollectOrder.upsert({
-    where: {
-      shop_shopifyOrderId: { shop, shopifyOrderId: String(order.id) },
-    },
-    create: {
-      shop,
-      shopifyOrderId: String(order.id),
-      shopifyOrderName: order.name,
-      shopifyOrderGid: order.admin_graphql_api_id ?? "",
-      pickupLocationId: location.id,
-      customerName,
-      customerEmail,
-      customerPhone,
-      lineItemsJson: lineItems,
-      totalPrice: order.total_price ?? "",
-      currency: order.currency ?? "",
-      status: "confirmed",
-      confirmedAt: new Date(),
-    },
-    update: {
-      shopifyOrderName: order.name,
-      customerName,
-      customerEmail,
-      customerPhone,
-    },
+  const recorded = await recordNativePickupOrder({
+    shop,
+    admin,
+    order,
+    source: "orders/paid",
   });
 
-  // Tag the order in Shopify admin (idempotent -tagsAdd won't duplicate)
-  const locationName = attrs.get(ATTR_LOCATION_NAME) ?? location.name;
-  if (admin) {
-    try {
-      await admin.graphql(
-        `mutation tagOrder($id: ID!, $tags: [String!]!) {
-          tagsAdd(id: $id, tags: $tags) {
-            userErrors { field message }
-          }
-        }`,
-        { variables: { id: order.admin_graphql_api_id, tags: ["click-collect", `pickup:${locationName}`] } },
-      );
-
-      await admin.graphql(
-        `mutation addOrderNote($input: OrderInput!) {
-          orderUpdate(input: $input) {
-            userErrors { field message }
-          }
-        }`,
-        {
-          variables: {
-            input: {
-              id: order.admin_graphql_api_id,
-              note: `CLICK & COLLECT - Pickup at: ${locationName}, ${[location.address, location.city, location.postcode].filter(Boolean).join(", ")}`,
-            },
-          },
-        },
-      );
-    } catch (e) {
-      console.error("Failed to tag order:", e);
-    }
+  if (recorded) {
+    console.warn(
+      `[orders/paid] ${shop}: recovered pickup order ${order.name}, which orders/create did not record`,
+    );
   }
 
   return json({ ok: true });
